@@ -9,15 +9,49 @@ from sklearn.neural_network import MLPRegressor
 from sklearn.metrics import mean_absolute_error
 import pdb
 
+## Drew added
+from utils import *
+import argparse
+import numpy as np
+
+
 
 def load_wine_quality_data():
     white_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv', sep=';')
     red_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv', sep=';')
     return white_wine, red_wine
 
-def split_white_wine_data(white_wine):
-    white_wine_train, white_wine_test_0 = train_test_split(white_wine, test_size=1599/4898, shuffle=True, random_state=42)
-    return white_wine_train, white_wine_test_0
+
+## Drew edited
+def split_white_wine_data(white_wine, shift_type='none', cov_shift_bias = 1.0):
+    
+    if (shift_type == 'none'):
+        ## No shift within the white wine test data 
+        white_wine_train, white_wine_test_0 = train_test_split(white_wine, test_size=1599/4898, shuffle=True, random_state=42)
+        return white_wine_train, white_wine_test_0
+    
+    elif (shift_type == 'covariate'):
+        ## Covariate shift within the white wine test data
+        shift_index = 500
+        print('adding covariate shift at index ' + str(shift_index) + 'bias =' + str(cov_shift_bias))
+        
+        white_wine_train, white_wine_test_0 = train_test_split(white_wine, test_size=1599/4898, shuffle=True, random_state=42)
+        
+        white_wine_test_0 = white_wine_test_0.reset_index(drop=True)
+#         print("white_wine_test_0.index", white_wine_test_0.index)
+        
+        white_wine_train_copy = white_wine_train.copy()
+        X_train = white_wine_train_copy.iloc[:, 0:11].values
+        white_wine_test_0_copy = white_wine_test_0.copy()
+        X_test_0 = white_wine_test_0_copy.iloc[:, 0:11].values
+        
+        white_wine_test_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset='wine', bias=cov_shift_bias)
+
+        white_wine_test_0 = pd.concat([white_wine_test_0[0:shift_index], white_wine_test_0.iloc[white_wine_test_0_biased_idx]], ignore_index=True)
+        
+        return white_wine_train,  white_wine_test_0
+
+
 
 def split_into_folds(white_wine_train):
     X = white_wine_train.drop('quality', axis=1).to_numpy()
@@ -26,7 +60,7 @@ def split_into_folds(white_wine_train):
     folds = list(kf.split(X, y))
     return X, y, folds
 
-def train_and_evaluate(X, y, folds, white_wine_test_0, red_wine):
+def train_and_evaluate(X, y, folds, white_wine_test_0, red_wine, muh_fun_name='RF'):
     fold_results = []
     cs_0 = []
     cs_1 = []
@@ -38,10 +72,18 @@ def train_and_evaluate(X, y, folds, white_wine_test_0, red_wine):
         y_train, y_cal = y[train_index], y[cal_index]
         
         # Train the model on the training set proper
-        model = Pipeline([
-            ('scaler', StandardScaler()),  # Normalize the data
-            ('regressor', RandomForestRegressor(n_estimators=100, random_state=42))
-        ])
+        
+        if (muh_fun_name == 'RF'):
+            model = Pipeline([
+                ('scaler', StandardScaler()),  # Normalize the data
+                ('regressor', RandomForestRegressor(n_estimators=100, random_state=42))
+            ])
+        elif (muh_fun_name == 'NN'):
+            model = Pipeline([
+                ('scaler', StandardScaler()),  # Normalize the data
+                ('regressor', MLPRegressor(solver='lbfgs',activation='logistic', random_state=42))
+            ])
+            
         model.fit(X_train, y_train)
         
         # Evaluate using the calibration set + test set 0 (Scenario 0)
@@ -69,6 +111,7 @@ def train_and_evaluate(X, y, folds, white_wine_test_0, red_wine):
     
     return cs_0, cs_1
 
+
 def calculate_p_values(conformity_scores):
     """
     Calculate the conformal p-values from conformity scores.
@@ -78,6 +121,25 @@ def calculate_p_values(conformity_scores):
                          np.random.uniform() * np.sum(conformity_scores[:i] == conformity_scores[i])) / (i + 1)
                          for i in range(n)])
     return p_values
+
+
+## Drew added
+## Note: This is for calculating the weighted p-values once the normalized weights have already been calculated
+def calculate_weighted_p_values(conformity_scores, normalized_weights):
+    """
+    Calculate the weighted conformal p-values from conformity scores and given normalized weights 
+    (i.e., enforce np.sum(normalized_weights) = 1).
+    """
+    ## Ensuring that weights are normalized, with slight flexibility to account for float-point issues
+    if (np.abs(1 - np.sum(normalized_weights)) > 0.00001):
+        raise Exception("normalized_weights must sum to 1")
+    
+    n = len(conformity_scores)
+    p_values = np.array([(np.sum(normalized_weights[conformity_scores[:i] < conformity_scores[i]]) + \
+                         np.random.uniform() * np.sum(normalized_weights[conformity_scores[:i] == conformity_scores[i]])) \
+                         / (i + 1) for i in range(n)])
+    return p_values
+
 
 def ville_procedure(p_values, threshold=100):
     """
@@ -155,12 +217,14 @@ def retrain_count(conformity_score, method, sr_threshold, cu_confidence):
     
     return retrain_m, retrain_s, martingale_value, sigma
 
-def training_function(white_wine, red_wine, method, sr_threshold=1e6, cu_confidence=0.99):
+
+
+def training_function(white_wine, red_wine, method, sr_threshold=1e6, cu_confidence=0.99, muh_fun_name='RF', shift_type='none', cov_shift_bias=1.0):
     
-    white_wine_train, white_wine_test_0 = split_white_wine_data(white_wine)
+    white_wine_train, white_wine_test_0 = split_white_wine_data(white_wine, shift_type=shift_type, cov_shift_bias = cov_shift_bias)
     X, y, folds = split_into_folds(white_wine_train)
 
-    cs_0, cs_1 = train_and_evaluate(X, y, folds, white_wine_test_0, red_wine)
+    cs_0, cs_1 = train_and_evaluate(X, y, folds, white_wine_test_0, red_wine, muh_fun_name)
 
     fold_martingales_0, fold_martingales_1 = [], []
     sigmas_0, sigmas_1 = [], []
@@ -188,7 +252,8 @@ def training_function(white_wine, red_wine, method, sr_threshold=1e6, cu_confide
         change_point_index=1100,
         title="Paths of Shiryaev-Roberts Procedure",
         ylabel="Shiryaev-Roberts Statistics",
-        file_name="shiryaev_roberts"
+        file_name="shiryaev_roberts",
+        shift_type=shift_type
     )
 
     # Decide to retrain based on two out of three martingales exceeding the threshold
@@ -211,7 +276,32 @@ def training_function(white_wine, red_wine, method, sr_threshold=1e6, cu_confide
         print("Retraining the model for red wine...")
     else:
         print("No retraining needed for red wine.")
+        
+        
+        
+if __name__ == "__main__":
 
-white_wine, red_wine = load_wine_quality_data()
-# method = ['variable', 'fix']
-training_function(white_wine, red_wine, 'variable')
+    parser = argparse.ArgumentParser(description='Run WTR experiments.')
+    
+    parser.add_argument('--dataset', type=str, default='wine', help='Dataset for experiments.')
+    parser.add_argument('--muh_fun_name', type=str, default='RF', help='Mu (mean) function predictor. RF or NN.')
+    parser.add_argument('--bias', type=float, default=0.0, help='Scalar bias magnitude parameter lmbda for exponential tilting covariate shift.')
+#     parser.add_argument('--ntrial', type=int, default=10, help='Number of trials (experiment replicates) to complete.')
+#     parser.add_argument('--ntrain', type=int, default=200, help='Number of training datapoints')
+    
+    ## python main.py dataset muh_fun_name bias
+    ## python main.py wine NN 0.53
+    
+    args = parser.parse_args()
+    dataset = args.dataset
+    muh_fun_name = args.muh_fun_name
+    cov_shift_bias = args.bias
+    print("cov_shift_bias: ", cov_shift_bias)
+    
+#     ntrial = args.ntrial
+#     n = args.ntrain
+
+    white_wine, red_wine = load_wine_quality_data()
+    
+    # method = ['variable', 'fix']
+    training_function(white_wine, red_wine, 'variable', muh_fun_name=muh_fun_name, shift_type='covariate', cov_shift_bias=cov_shift_bias)

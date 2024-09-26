@@ -2,7 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 def plot_martingale_paths(red_wine_paths, white_wine_paths, change_point_index=None, title="Martingale Paths", 
-                        xlabel="Observation Index", ylabel="Simple Jumper Martingale Value", file_name="martingale_paths"):
+                        xlabel="Observation Index", ylabel="Simple Jumper Martingale Value", file_name="martingale_paths", 
+                        shift_type = False):
     """
     Plot martingale paths for red wine and white wine groups over time, similar to Figure 2 in the paper.
     
@@ -33,4 +34,8 @@ def plot_martingale_paths(red_wine_paths, white_wine_paths, change_point_index=N
     plt.title(title, fontsize=26)
     plt.legend(fontsize=15)
     plt.grid(True, which="both", ls="--")
-    plt.savefig(f'/cis/home/xhan56/code/wtr/figs/{file_name}.pdf')
+    
+    if (shift_type == 'none'):
+        plt.savefig(f'../figs/{file_name}.pdf')
+    elif (shift_type == 'covariate'):
+        plt.savefig(f'../figs/{file_name}_cov_shift.pdf')
