@@ -46,9 +46,14 @@ def split_and_shift_dataset0(dataset0, dataset0_name, test0_size, dataset0_shift
         dataset0_test_0 = dataset0_test_0.reset_index(drop=True)
         
         dataset0_train_copy = dataset0_train.copy()
-        X_train = dataset0_train_copy.iloc[:, 0:11].values
+        
+        X_train = dataset0_train_copy.iloc[:, :-1].values
         dataset0_test_0_copy = dataset0_test_0.copy()
-        X_test_0 = dataset0_test_0_copy.iloc[:, 0:11].values
+        X_test_0 = dataset0_test_0_copy.iloc[:, :-1].values
+        
+#         print("X_train shape: ", np.shape(X_train))
+#         print("X_test_0 shape: ", np.shape(X_test_0))
+#         print(dataset0_name)
         
         dataset0_test_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
         
@@ -326,6 +331,8 @@ if __name__ == "__main__":
     parser.add_argument('--d0_shift_type', type=str, default='none', help='Shift type to induce in dataset0.')
     parser.add_argument('--bias', type=float, default=0.0, help='Scalar bias magnitude parameter lmbda for exponential tilting covariate shift.')
     parser.add_argument('--plot_errors', type=bool, default=False, help='Whether to also plot absolute errors.')
+    parser.add_argument('--schedule', type=str, default='variable', help='Training schedule: variable or fixed.')
+
 #     parser.add_argument('--ntrial', type=int, default=10, help='Number of trials (experiment replicates) to complete.')
 #     parser.add_argument('--ntrain', type=int, default=200, help='Number of training datapoints')
     
@@ -340,6 +347,7 @@ if __name__ == "__main__":
     dataset0_shift_type = args.d0_shift_type
     cov_shift_bias = args.bias
     plot_errors = args.plot_errors
+    training_schedule = args.schedule
     print("cov_shift_bias: ", cov_shift_bias)
     
     
@@ -351,4 +359,4 @@ if __name__ == "__main__":
         dataset1 = None
     
     # training_schedule = ['variable', 'fix']
-    training_function(dataset0, dataset0_name, dataset1, training_schedule='variable', muh_fun_name=muh_fun_name, test0_size = test0_size, dataset0_shift_type=dataset0_shift_type, cov_shift_bias=cov_shift_bias, plot_errors=plot_errors)
+    training_function(dataset0, dataset0_name, dataset1, training_schedule=training_schedule, muh_fun_name=muh_fun_name, test0_size = test0_size, dataset0_shift_type=dataset0_shift_type, cov_shift_bias=cov_shift_bias, plot_errors=plot_errors)

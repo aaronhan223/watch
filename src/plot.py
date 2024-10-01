@@ -59,11 +59,13 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_0, c
         ### Plotting errors (ie, abs(scores))
         # Plot dataset0 group with dashed lines
         for i, cs in enumerate(cs_0):
-            plt.plot(np.abs(cs), label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i}')
+            window=100
+            cs_averaged = [np.mean(np.abs(cs[(j*window):((j+1)*window)])) for j in range(0, len(cs))]
+            plt.plot(np.array(range(0, len(cs)))*window, cs_averaged, label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i+3}')
 
         # Plot dataset1 group with solid lines
         for i, cs in enumerate(cs_1):
-            plt.plot(np.abs(cs), label=f'Red Wine Fold {i+1}', linestyle='-', color=f'C{i+3}')
+            plt.plot(np.abs(cs), label=f'Red Wine Fold {i+1}', linestyle='-', color=f'C{i}')
 
         # Add vertical line at the change point
         plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Change Point')
