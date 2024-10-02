@@ -5,7 +5,7 @@ import os
 def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_0_means, cs_abs_1_means, cs_abs_0_stderr, \
                           cs_abs_1_stderr, errs_window=100, change_point_index=None,title="Martingale Paths", \
                           xlabel="Observation Index", ylabel="Simple Jumper Martingale Value", file_name="martingale_paths",\
-                          dataset0_shift_type = 'none',cov_shift_bias=0.0, plot_errors=False):
+                          dataset0_shift_type = 'none',cov_shift_bias=0.0, plot_errors=False, n_seeds=1):
     """
     Plot martingale paths for red wine and white wine groups over time, similar to Figure 2 in the paper.
     
@@ -42,7 +42,7 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_
     plt.title(title, fontsize=26)
     
     if (dataset0_shift_type != 'none'):
-        plt.title(title + ', ' + dataset0_shift_type + ' shift, bias=' + str(cov_shift_bias), fontsize=22)
+        plt.title(f'{title}, {dataset0_shift_type} shift, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}', fontsize=20)
 #     plt.ylim([10.0, 100000])
     plt.legend(fontsize=15)
     plt.grid(True, which="both", ls="--")
@@ -56,16 +56,18 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_
     if (plot_errors):
         plt.figure(figsize=(12, 8))
         
+        
         ### Plotting errors (ie, abs(scores))
         # Plot dataset0 group with dashed lines
         for i, cs in enumerate(cs_abs_0_means):
-            cs_averaged = [np.mean(np.abs(cs[(j*errs_window):((j+1)*errs_window)])) for j in range(0, len(cs))]
-            plt.plot(np.array(range(0, len(cs)))*errs_window, cs_averaged, label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i}')
-            print(np.shape(cs-np.array(cs_abs_0_stderr[i])))
-            plt.fill_between(np.array(range(0, len(cs)))*errs_window, (cs-np.array(cs_abs_0_stderr[i])).flatten(), \
+            plt.plot(np.arange(0, len(cs)*errs_window, errs_window), cs, label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i}')
+            
+            plt.fill_between(np.arange(0, len(cs)*errs_window, errs_window), (cs-np.array(cs_abs_0_stderr[i])).flatten(), \
                              (cs+np.array(cs_abs_0_stderr[i])).flatten(), alpha=0.5, color=f'C{i}')
+            
 
         # Plot dataset1 group with solid lines
+        
         for i, cs in enumerate(cs_abs_1_means):
             plt.plot(np.abs(cs), label=f'Red Wine Fold {i+1}', linestyle='-', color=f'C{i+3}')
 
@@ -74,7 +76,8 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_
 
         plt.xlabel(xlabel, fontsize=24)
         plt.ylabel('Absolute error', fontsize=24)
-        plt.title('Error paths', fontsize=26)
+        plt.title(f'Error paths, {dataset0_shift_type} shift, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}', fontsize=20)
+
         plt.legend(fontsize=15)
         plt.grid(True, which="both", ls="--")
 

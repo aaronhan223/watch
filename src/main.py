@@ -347,7 +347,7 @@ if __name__ == "__main__":
     parser.add_argument('--plot_errors', type=bool, default=False, help='Whether to also plot absolute errors.')
     parser.add_argument('--schedule', type=str, default='variable', help='Training schedule: variable or fixed.')
     parser.add_argument('--n_seeds', type=int, default=1, help='Number of random seeds to run experiments on.')
-    parser.add_argument('--errs_window', type=int, default=100, help='Num observations to average for plotting errors.')
+    parser.add_argument('--errs_window', type=int, default=50, help='Num observations to average for plotting errors.')
     
     
     ## python main.py dataset muh_fun_name bias
@@ -387,11 +387,12 @@ if __name__ == "__main__":
         
         
         
-    paths_all.to_csv('../results/path_results.csv')
+    paths_all.to_csv(f'../results/path_results_{dataset0_name}_{muh_fun_name}_{dataset0_shift_type}shift_bias{cov_shift_bias}_nseeds{n_seeds}.csv')
     
     
     ## Compute average and stderr values for plotting
     paths_all_abs = paths_all.abs()
+    num_obs = paths_all_abs['obs_idx'].max()+1
     
     sigmas_0_means = []
     sigmas_1_means = []
@@ -402,19 +403,25 @@ if __name__ == "__main__":
     cs_abs_0_stderr = []
     cs_abs_1_stderr = []
     
+    ## For each fold/separate martingale path
     for i in range(0, 3):
         ## Compute average martingale values over trials
         sigmas_0_means.append(paths_all_abs[['sigmas_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
         
-        ## Compute average (and stderr) absolute scores over trials
-        cs_mean_trials = paths_all_abs[['cs_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean() 
-        cs_stderr_trials = paths_all_abs[['cs_0_'+str(i), 'obs_idx']].groupby('obs_idx').std() / n_seeds 
+        ## Compute average and stderr absolute score (residual) values over window, trials
+        cs_abs_0_means_fold = []
+        cs_abs_0_stderr_fold = []
+        for j in range(0, int(num_obs/errs_window)):
+            ## Subset dataframe by window
+            paths_all_abs_sub = paths_all_abs[paths_all_abs['obs_idx'].isin(np.arange(j*errs_window,(j+1)*errs_window))]
+            
+            ## Averages and stderrs for that window
+            cs_abs_0_means_fold.append(paths_all_abs_sub['cs_0_'+str(i)].mean())
+            cs_abs_0_stderr_fold.append(paths_all_abs_sub['cs_0_'+str(i)].std()/ np.sqrt(n_seeds*errs_window))
         
-        ## Average abs. scores over window
-        cs_abs_0_means.append([np.mean(np.abs(cs_mean_trials[(j*errs_window):((j+1)*errs_window)])) \
-                           for j in range(0, int(len(cs_mean_trials)/errs_window))]) ## cs averaged again over window
-        cs_abs_0_stderr.append([np.mean(np.abs(cs_stderr_trials[(j*errs_window):((j+1)*errs_window)])) \
-                           for j in range(0, int(len(cs_stderr_trials)/errs_window))]) ## cs averaged again over window
+        ## Averages and stderrs for that fold
+        cs_abs_0_means.append(cs_abs_0_means_fold)
+        cs_abs_0_stderr.append(cs_abs_0_stderr_fold)
         
         
     if (dataset1 is not None):
@@ -422,16 +429,20 @@ if __name__ == "__main__":
             ## Compute average martingale values over trials
             sigmas_1_means.append(paths_all_abs[['sigmas_1_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
 
-            ## Compute average (and stderr) absolute scores over trials
-            cs_mean_trials = paths_all_abs[['cs_1_'+str(i), 'obs_idx']].groupby('obs_idx').mean() 
-            cs_stderr_trials = paths_all_abs[['cs_1_'+str(i), 'obs_idx']].groupby('obs_idx').std() / n_seeds 
+            ## Compute average and stderr absolute score (residual) values over window, trials
+            cs_abs_1_means_fold = []
+            cs_abs_1_stderr_fold = []
+            for j in range(0, int(num_obs/errs_window)):
+                ## Subset dataframe by window
+                paths_all_abs_sub = paths_all_abs[paths_all_abs['obs_idx'].isin(np.arange(j*errs_window,(j+1)*errs_window))]
 
-            ## Average abs. scores over window
-            cs_abs_1_means.append([np.mean(np.abs(cs_mean_trials[(j*errs_window):((j+1)*errs_window)])) \
-                               for j in range(0, int(len(cs_mean_trials)/errs_window))]) ## cs averaged again over window
-            cs_abs_1_stderr.append([np.mean(np.abs(cs_stderr_trials[(j*errs_window):((j+1)*errs_window)])) \
-                               for j in range(0, int(len(cs_stderr_trials)/errs_window))]) ## cs averaged again over window
-            
+                ## Averages and stderrs for that window
+                cs_abs_1_means_fold.append(paths_all_abs_sub['cs_1_'+str(i)].mean())
+                cs_abs_1_stderr_fold.append(paths_all_abs_sub['cs_1_'+str(i)].std()/ np.sqrt(n_seeds*errs_window))
+
+            ## Averages and stderrs for that fold
+            cs_abs_1_means.append(cs_abs_1_means_fold)
+            cs_abs_1_stderr.append(cs_abs_1_stderr_fold)
         
     
     plot_martingale_paths(
@@ -443,11 +454,12 @@ if __name__ == "__main__":
         cs_abs_0_stderr=cs_abs_0_stderr,
         cs_abs_1_stderr=cs_abs_1_stderr,
         errs_window=errs_window,
-        change_point_index=len(dataset0)*(1-test0_size)/3,
+        change_point_index= len(dataset0)*(1-test0_size)/3,
         title="Average paths of Shiryaev-Roberts Procedure",
         ylabel="Shiryaev-Roberts Statistics",
         file_name="shiryaev_roberts",
         dataset0_shift_type=dataset0_shift_type,
         cov_shift_bias=cov_shift_bias,
-        plot_errors=plot_errors
+        plot_errors=plot_errors,
+        n_seeds=n_seeds
     )
