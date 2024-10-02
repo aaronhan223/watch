@@ -2,10 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_0, cs_1, change_point_index=None, \
-                          title="Martingale Paths", xlabel="Observation Index", ylabel="Simple Jumper Martingale Value", \
-                          file_name="martingale_paths", dataset0_shift_type = 'none', cov_shift_bias=0.0, \
-                          plot_errors=False):
+def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_0_means, cs_abs_1_means, cs_abs_0_stderr, \
+                          cs_abs_1_stderr, errs_window=100, change_point_index=None,title="Martingale Paths", \
+                          xlabel="Observation Index", ylabel="Simple Jumper Martingale Value", file_name="martingale_paths",\
+                          dataset0_shift_type = 'none',cov_shift_bias=0.0, plot_errors=False):
     """
     Plot martingale paths for red wine and white wine groups over time, similar to Figure 2 in the paper.
     
@@ -26,11 +26,11 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_0, c
     
     # Plot dataset0 group with dashed lines
     for i, path in enumerate(dataset0_paths):
-        plt.plot(path, label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i+3}')
+        plt.plot(path, label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i}')
 
     # Plot dataset1 group with solid lines
     for i, path in enumerate(dataset1_paths):
-        plt.plot(path, label=f'Red Wine Fold {i+1}', linestyle='-', color=f'C{i}')
+        plt.plot(path, label=f'Red Wine Fold {i+1}', linestyle='-', color=f'C{i+3}')
 
 
     # Add vertical line at the change point
@@ -58,14 +58,16 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_0, c
         
         ### Plotting errors (ie, abs(scores))
         # Plot dataset0 group with dashed lines
-        for i, cs in enumerate(cs_0):
-            window=100
-            cs_averaged = [np.mean(np.abs(cs[(j*window):((j+1)*window)])) for j in range(0, len(cs))]
-            plt.plot(np.array(range(0, len(cs)))*window, cs_averaged, label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i+3}')
+        for i, cs in enumerate(cs_abs_0_means):
+            cs_averaged = [np.mean(np.abs(cs[(j*errs_window):((j+1)*errs_window)])) for j in range(0, len(cs))]
+            plt.plot(np.array(range(0, len(cs)))*errs_window, cs_averaged, label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i}')
+            print(np.shape(cs-np.array(cs_abs_0_stderr[i])))
+            plt.fill_between(np.array(range(0, len(cs)))*errs_window, (cs-np.array(cs_abs_0_stderr[i])).flatten(), \
+                             (cs+np.array(cs_abs_0_stderr[i])).flatten(), alpha=0.5, color=f'C{i}')
 
         # Plot dataset1 group with solid lines
-        for i, cs in enumerate(cs_1):
-            plt.plot(np.abs(cs), label=f'Red Wine Fold {i+1}', linestyle='-', color=f'C{i}')
+        for i, cs in enumerate(cs_abs_1_means):
+            plt.plot(np.abs(cs), label=f'Red Wine Fold {i+1}', linestyle='-', color=f'C{i+3}')
 
         # Add vertical line at the change point
         plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Change Point')

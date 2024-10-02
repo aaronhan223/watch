@@ -69,7 +69,7 @@ def wsample(wts, n, d, frac=0.5):
 def exponential_tilting_indices(x_pca, x, dataset, bias=1):
     (n, d) = x.shape
     importance_weights = get_w(x_pca, x, dataset, bias)
-    print("importance_weights : ", importance_weights)
+#     print("importance_weights : ", importance_weights)
 #     print("L1 squared : ", np.linalg.norm(weights, ord=1)**2)
 #     print("L2 : ", np.linalg.norm(weights, ord=2)**2)
 #     print("Effective sample size : ", np.linalg.norm(weights, ord=1)**2 / np.linalg.norm(weights, ord=2)**2)

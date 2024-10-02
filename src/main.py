@@ -31,17 +31,17 @@ def get_airfoil_data():
     return airfoil
 
 ## Drew edited
-def split_and_shift_dataset0(dataset0, dataset0_name, test0_size, dataset0_shift_type='none', cov_shift_bias = 1.0):
+def split_and_shift_dataset0(dataset0, dataset0_name, test0_size, dataset0_shift_type='none', cov_shift_bias = 1.0, seed=0):
     
     if (dataset0_shift_type == 'none'):
         ## No shift within dataset0
-        dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=42)
+        dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
         return dataset0_train, dataset0_test_0
     
     elif (dataset0_shift_type == 'covariate'):
         ## Covariate shift within dataset0
         
-        dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=42)
+        dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
         
         dataset0_test_0 = dataset0_test_0.reset_index(drop=True)
         
@@ -51,9 +51,6 @@ def split_and_shift_dataset0(dataset0, dataset0_name, test0_size, dataset0_shift
         dataset0_test_0_copy = dataset0_test_0.copy()
         X_test_0 = dataset0_test_0_copy.iloc[:, :-1].values
         
-#         print("X_train shape: ", np.shape(X_train))
-#         print("X_test_0 shape: ", np.shape(X_test_0))
-#         print(dataset0_name)
         
         dataset0_test_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
         
@@ -61,15 +58,15 @@ def split_and_shift_dataset0(dataset0, dataset0_name, test0_size, dataset0_shift
 
 
 
-def split_into_folds(dataset0_train):
+def split_into_folds(dataset0_train, seed=0):
     y_name = dataset0_train.columns[-1] ## Outcome column must be last in dataframe
     X = dataset0_train.drop(y_name, axis=1).to_numpy()
     y = dataset0_train[y_name].to_numpy()
-    kf = KFold(n_splits=3, shuffle=True, random_state=42)
+    kf = KFold(n_splits=3, shuffle=True, random_state=seed)
     folds = list(kf.split(X, y))
     return X, y, folds
 
-def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'):
+def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0):
     fold_results = []
     cs_0 = []
     cs_1 = []
@@ -87,12 +84,12 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
         if (muh_fun_name == 'RF'):
             model = Pipeline([
                 ('scaler', StandardScaler()),  # Normalize the data
-                ('regressor', RandomForestRegressor(n_estimators=100, random_state=42))
+                ('regressor', RandomForestRegressor(n_estimators=100, random_state=seed))
             ])
         elif (muh_fun_name == 'NN'):
             model = Pipeline([
                 ('scaler', StandardScaler()),  # Normalize the data
-                ('regressor', MLPRegressor(solver='lbfgs',activation='logistic', random_state=42))
+                ('regressor', MLPRegressor(solver='lbfgs',activation='logistic', random_state=seed))
             ])
             
         model.fit(X_train, y_train)
@@ -244,14 +241,14 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
 
 def training_function(dataset0, dataset0_name, dataset1=None, training_schedule='variable', \
                       sr_threshold=1e6, cu_confidence=0.99, muh_fun_name='RF', test0_size=1599/4898, \
-                      dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False):
+                      dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0):
     
     dataset0_train, dataset0_test_0 = split_and_shift_dataset0(dataset0, dataset0_name, test0_size=test0_size, \
                                                                dataset0_shift_type=dataset0_shift_type, \
-                                                               cov_shift_bias = cov_shift_bias)
-    X, y, folds = split_into_folds(dataset0_train)
+                                                               cov_shift_bias = cov_shift_bias, seed=seed)
+    X, y, folds = split_into_folds(dataset0_train, seed=seed)
 
-    cs_0, cs_1 = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name)
+    cs_0, cs_1 = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed)
 
     fold_martingales_0, fold_martingales_1 = [], []
     sigmas_0, sigmas_1 = [], []
@@ -278,20 +275,22 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         sigmas_1.append(sigma_1)
     
         
-    plot_martingale_paths(
-        dataset0_paths=sigmas_0, 
-        dataset0_name=dataset0_name,
-        dataset1_paths=sigmas_1, 
-        cs_0=cs_0,
-        cs_1=cs_1,
-        change_point_index=len(X)/3,
-        title="Paths of Shiryaev-Roberts Procedure",
-        ylabel="Shiryaev-Roberts Statistics",
-        file_name="shiryaev_roberts",
-        dataset0_shift_type=dataset0_shift_type,
-        cov_shift_bias=cov_shift_bias,
-        plot_errors=plot_errors
-    )
+    ## Note: Moved plotting to outside training function
+#     plot_martingale_paths(
+#         dataset0_paths=sigmas_0, 
+#         dataset0_name=dataset0_name,
+#         dataset1_paths=sigmas_1, 
+#         cs_0=cs_0,
+#         cs_1=cs_1,
+#         change_point_index=len(X)/3,
+#         title="Paths of Shiryaev-Roberts Procedure",
+#         ylabel="Shiryaev-Roberts Statistics",
+#         file_name="shiryaev_roberts",
+#         dataset0_shift_type=dataset0_shift_type,
+#         cov_shift_bias=cov_shift_bias,
+#         plot_errors=plot_errors
+#     )
+    
     
 
     # Decide to retrain based on two out of three martingales exceeding the threshold
@@ -316,6 +315,21 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         print("No retraining needed for red wine.")
         
         
+    min_len = np.min([len(sigmas_0[i]) for i in range(0, np.shape(sigmas_0)[0])])
+    print(min_len)
+        
+    
+    paths = pd.DataFrame(np.c_[np.repeat(seed, min_len), np.arange(0, min_len)], columns = ['itrial', 'obs_idx'])
+    for k in range(0, len(sigmas_0)):
+        paths['sigmas_0_'+str(k)] = sigmas_0[k][0:min_len]
+        paths['cs_0_'+str(k)] = cs_0[k][0:min_len]
+    for k in range(0, len(sigmas_1)):
+        paths['sigmas_1_'+str(k)] = sigmas_1[k][0:min_len]
+        paths['cs_1_'+str(k)] = cs_1[k][0:min_len]
+    
+    return paths
+
+        
         
 if __name__ == "__main__":
 
@@ -332,9 +346,9 @@ if __name__ == "__main__":
     parser.add_argument('--bias', type=float, default=0.0, help='Scalar bias magnitude parameter lmbda for exponential tilting covariate shift.')
     parser.add_argument('--plot_errors', type=bool, default=False, help='Whether to also plot absolute errors.')
     parser.add_argument('--schedule', type=str, default='variable', help='Training schedule: variable or fixed.')
-
-#     parser.add_argument('--ntrial', type=int, default=10, help='Number of trials (experiment replicates) to complete.')
-#     parser.add_argument('--ntrain', type=int, default=200, help='Number of training datapoints')
+    parser.add_argument('--n_seeds', type=int, default=1, help='Number of random seeds to run experiments on.')
+    parser.add_argument('--errs_window', type=int, default=100, help='Num observations to average for plotting errors.')
+    
     
     ## python main.py dataset muh_fun_name bias
     ## python main.py --dataset0 white_wine --dataset1 red_wine --muh_fun_name NN --d0_shift_type covariate --bias 0.53
@@ -348,15 +362,92 @@ if __name__ == "__main__":
     cov_shift_bias = args.bias
     plot_errors = args.plot_errors
     training_schedule = args.schedule
+    n_seeds = args.n_seeds
+    errs_window = args.errs_window
     print("cov_shift_bias: ", cov_shift_bias)
     
     
     ## Load datasets into dataframes
-    dataset0 = eval('get_'+dataset0_name+'_data()')
+    dataset0 = eval(f'get_{dataset0_name}_data()')
     if (dataset1_name is not None):
-        dataset1 = eval('get_'+dataset1_name+'_data()')
+        dataset1 = eval(f'get_{dataset1_name}_data()')
     else:
         dataset1 = None
     
-    # training_schedule = ['variable', 'fix']
-    training_function(dataset0, dataset0_name, dataset1, training_schedule=training_schedule, muh_fun_name=muh_fun_name, test0_size = test0_size, dataset0_shift_type=dataset0_shift_type, cov_shift_bias=cov_shift_bias, plot_errors=plot_errors)
+    
+    paths_all = pd.DataFrame()
+
+    
+    for seed in range(0, n_seeds):
+        # training_schedule = ['variable', 'fix']
+        paths_curr = training_function(dataset0, dataset0_name, dataset1, training_schedule=training_schedule, muh_fun_name=muh_fun_name, test0_size = test0_size, dataset0_shift_type=dataset0_shift_type, cov_shift_bias=cov_shift_bias, plot_errors=plot_errors, seed=seed)
+        
+        
+        paths_all=paths_all.append(paths_curr, ignore_index=True)
+        
+        
+        
+    paths_all.to_csv('../results/path_results.csv')
+    
+    
+    ## Compute average and stderr values for plotting
+    paths_all_abs = paths_all.abs()
+    
+    sigmas_0_means = []
+    sigmas_1_means = []
+    sigmas_0_stderr = []
+    sigmas_1_stderr = []
+    cs_abs_0_means = []
+    cs_abs_1_means = []
+    cs_abs_0_stderr = []
+    cs_abs_1_stderr = []
+    
+    for i in range(0, 3):
+        ## Compute average martingale values over trials
+        sigmas_0_means.append(paths_all_abs[['sigmas_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
+        
+        ## Compute average (and stderr) absolute scores over trials
+        cs_mean_trials = paths_all_abs[['cs_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean() 
+        cs_stderr_trials = paths_all_abs[['cs_0_'+str(i), 'obs_idx']].groupby('obs_idx').std() / n_seeds 
+        
+        ## Average abs. scores over window
+        cs_abs_0_means.append([np.mean(np.abs(cs_mean_trials[(j*errs_window):((j+1)*errs_window)])) \
+                           for j in range(0, int(len(cs_mean_trials)/errs_window))]) ## cs averaged again over window
+        cs_abs_0_stderr.append([np.mean(np.abs(cs_stderr_trials[(j*errs_window):((j+1)*errs_window)])) \
+                           for j in range(0, int(len(cs_stderr_trials)/errs_window))]) ## cs averaged again over window
+        
+        
+    if (dataset1 is not None):
+        for i in range(0, 3):
+            ## Compute average martingale values over trials
+            sigmas_1_means.append(paths_all_abs[['sigmas_1_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
+
+            ## Compute average (and stderr) absolute scores over trials
+            cs_mean_trials = paths_all_abs[['cs_1_'+str(i), 'obs_idx']].groupby('obs_idx').mean() 
+            cs_stderr_trials = paths_all_abs[['cs_1_'+str(i), 'obs_idx']].groupby('obs_idx').std() / n_seeds 
+
+            ## Average abs. scores over window
+            cs_abs_1_means.append([np.mean(np.abs(cs_mean_trials[(j*errs_window):((j+1)*errs_window)])) \
+                               for j in range(0, int(len(cs_mean_trials)/errs_window))]) ## cs averaged again over window
+            cs_abs_1_stderr.append([np.mean(np.abs(cs_stderr_trials[(j*errs_window):((j+1)*errs_window)])) \
+                               for j in range(0, int(len(cs_stderr_trials)/errs_window))]) ## cs averaged again over window
+            
+        
+    
+    plot_martingale_paths(
+        dataset0_paths=sigmas_0_means,
+        dataset0_name=dataset0_name,
+        dataset1_paths=sigmas_1_means, 
+        cs_abs_0_means=cs_abs_0_means,
+        cs_abs_1_means=cs_abs_1_means,
+        cs_abs_0_stderr=cs_abs_0_stderr,
+        cs_abs_1_stderr=cs_abs_1_stderr,
+        errs_window=errs_window,
+        change_point_index=len(dataset0)*(1-test0_size)/3,
+        title="Average paths of Shiryaev-Roberts Procedure",
+        ylabel="Shiryaev-Roberts Statistics",
+        file_name="shiryaev_roberts",
+        dataset0_shift_type=dataset0_shift_type,
+        cov_shift_bias=cov_shift_bias,
+        plot_errors=plot_errors
+    )
