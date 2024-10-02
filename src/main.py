@@ -315,8 +315,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         print("No retraining needed for red wine.")
         
         
-    min_len = np.min([len(sigmas_0[i]) for i in range(0, np.shape(sigmas_0)[0])])
-    print(min_len)
+    min_len = np.min([len(sigmas_0[i]) for i in range(0, len(sigmas_0))])
         
     
     paths = pd.DataFrame(np.c_[np.repeat(seed, min_len), np.arange(0, min_len)], columns = ['itrial', 'obs_idx'])
