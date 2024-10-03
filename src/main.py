@@ -68,7 +68,7 @@ def split_into_folds(dataset0_train, seed=0):
     folds = list(kf.split(X, y))
     return X, y, folds
 
-def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0):
+def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0, cs_type='signed'):
     fold_results = []
     cs_0 = []
     cs_1 = []
@@ -109,11 +109,19 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
         
         np.set_printoptions(threshold=np.inf)
         
-        conformity_scores_0 = y_test_0 - y_pred_0
+        if (cs_type == 'signed'):
+            conformity_scores_0 = y_test_0 - y_pred_0
+        elif (cs_type == 'abs'):
+            conformity_scores_0 = np.abs(y_test_0 - y_pred_0)
+            
         cs_0.append(conformity_scores_0)
         
         if (dataset1 is not None):
-            conformity_scores_1 = y_test_1 - y_pred_1
+            if (cs_type == 'signed'):
+                conformity_scores_1 = y_test_1 - y_pred_1
+            elif (cs_type == 'abs'):
+                conformity_scores_1 = np.abs(y_test_1 - y_pred_1)
+                
             cs_1.append(conformity_scores_1)
 
             # Store results for each fold
@@ -243,14 +251,14 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
 
 def training_function(dataset0, dataset0_name, dataset1=None, training_schedule='variable', \
                       sr_threshold=1e6, cu_confidence=0.99, muh_fun_name='RF', test0_size=1599/4898, \
-                      dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0):
+                      dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed'):
     
     dataset0_train, dataset0_test_0 = split_and_shift_dataset0(dataset0, dataset0_name, test0_size=test0_size, \
                                                                dataset0_shift_type=dataset0_shift_type, \
                                                                cov_shift_bias = cov_shift_bias, seed=seed)
     X, y, folds = split_into_folds(dataset0_train, seed=seed)
 
-    cs_0, cs_1 = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed)
+    cs_0, cs_1 = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed, cs_type=cs_type)
 
     fold_martingales_0, fold_martingales_1 = [], []
     sigmas_0, sigmas_1 = [], []
@@ -349,6 +357,7 @@ if __name__ == "__main__":
     parser.add_argument('--schedule', type=str, default='variable', help='Training schedule: variable or fixed.')
     parser.add_argument('--n_seeds', type=int, default=1, help='Number of random seeds to run experiments on.')
     parser.add_argument('--errs_window', type=int, default=50, help='Num observations to average for plotting errors.')
+    parser.add_argument('--cs_type', type=str, default='signed', help="Nonconformity score type: 'abs' or 'signed' ")
     
     
     ## python main.py dataset muh_fun_name bias
@@ -365,6 +374,7 @@ if __name__ == "__main__":
     training_schedule = args.schedule
     n_seeds = args.n_seeds
     errs_window = args.errs_window
+    cs_type = args.cs_type
     print("cov_shift_bias: ", cov_shift_bias)
     
     
@@ -381,7 +391,7 @@ if __name__ == "__main__":
     
     for seed in range(0, n_seeds):
         # training_schedule = ['variable', 'fix']
-        paths_curr = training_function(dataset0, dataset0_name, dataset1, training_schedule=training_schedule, muh_fun_name=muh_fun_name, test0_size = test0_size, dataset0_shift_type=dataset0_shift_type, cov_shift_bias=cov_shift_bias, plot_errors=plot_errors, seed=seed)
+        paths_curr = training_function(dataset0, dataset0_name, dataset1, training_schedule=training_schedule, muh_fun_name=muh_fun_name, test0_size = test0_size, dataset0_shift_type=dataset0_shift_type, cov_shift_bias=cov_shift_bias, plot_errors=plot_errors, seed=seed, cs_type=cs_type)
         
         paths_all = pd.concat([paths_all, paths_curr], ignore_index=True)
         
@@ -460,5 +470,6 @@ if __name__ == "__main__":
         dataset0_shift_type=dataset0_shift_type,
         cov_shift_bias=cov_shift_bias,
         plot_errors=plot_errors,
-        n_seeds=n_seeds
+        n_seeds=n_seeds,
+        cs_type=cs_type
     )

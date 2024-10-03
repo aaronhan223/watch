@@ -5,7 +5,7 @@ import os
 def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_0_means, cs_abs_1_means, cs_abs_0_stderr, \
                           cs_abs_1_stderr, errs_window=100, change_point_index=None,title="Martingale Paths", \
                           xlabel="Observation Index", ylabel="Simple Jumper Martingale Value", file_name="martingale_paths",\
-                          dataset0_shift_type = 'none',cov_shift_bias=0.0, plot_errors=False, n_seeds=1):
+                          dataset0_shift_type = 'none',cov_shift_bias=0.0, plot_errors=False, n_seeds=1, cs_type='signed'):
     """
     Plot martingale paths for red wine and white wine groups over time, similar to Figure 2 in the paper.
     
@@ -42,7 +42,7 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_
     plt.title(title, fontsize=26)
     
     if (dataset0_shift_type != 'none'):
-        plt.title(f'{title}, {dataset0_shift_type} shift, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}', fontsize=20)
+        plt.title(f'{title}, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
 #     plt.ylim([10.0, 100000])
     plt.legend(fontsize=15)
     plt.grid(True, which="both", ls="--")
@@ -50,7 +50,7 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_
     if (dataset0_shift_type == 'none'):
         plt.savefig(os.getcwd() + f'/../figs/{dataset0_name}_{file_name}.pdf')
     elif (dataset0_shift_type == 'covariate'):
-        plt.savefig(os.getcwd() + f'/../figs/{dataset0_name}_{file_name}_CovShift.pdf')
+        plt.savefig(os.getcwd() + f'/../figs/{dataset0_name}_{file_name}_CovShift_bias{str(cov_shift_bias)}_nseeds{n_seeds}_{cs_type}Scores.pdf')
     
     
     if (plot_errors):
@@ -76,7 +76,7 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_
 
         plt.xlabel(xlabel, fontsize=24)
         plt.ylabel('Absolute error', fontsize=24)
-        plt.title(f'Error paths, {dataset0_shift_type} shift, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}', fontsize=20)
+        plt.title(f'Error paths, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
 
         plt.legend(fontsize=15)
         plt.grid(True, which="both", ls="--")
@@ -85,4 +85,4 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_
         if (dataset0_shift_type == 'none'):
             plt.savefig(os.getcwd() + f'/../figs/{dataset0_name}_AbsoluteErrors.pdf')
         elif (dataset0_shift_type == 'covariate'):
-            plt.savefig(os.getcwd() + f'/../figs/{dataset0_name}_AbsoluteErrors_CovShift.pdf')
+            plt.savefig(os.getcwd() + f'/../figs/{dataset0_name}_AbsoluteErrors_CovShift_bias{str(cov_shift_bias)}_nseeds{n_seeds}_{cs_type}Scores.pdf')
