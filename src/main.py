@@ -381,9 +381,7 @@ if __name__ == "__main__":
         # training_schedule = ['variable', 'fix']
         paths_curr = training_function(dataset0, dataset0_name, dataset1, training_schedule=training_schedule, muh_fun_name=muh_fun_name, test0_size = test0_size, dataset0_shift_type=dataset0_shift_type, cov_shift_bias=cov_shift_bias, plot_errors=plot_errors, seed=seed)
         
-        
-        paths_all=paths_all.append(paths_curr, ignore_index=True)
-        
+        paths_all = pd.concat([paths_all, paths_curr], ignore_index=True)
         
         
     paths_all.to_csv(f'../results/path_results_{dataset0_name}_{muh_fun_name}_{dataset0_shift_type}shift_bias{cov_shift_bias}_nseeds{n_seeds}.csv')
@@ -391,7 +389,7 @@ if __name__ == "__main__":
     
     ## Compute average and stderr values for plotting
     paths_all_abs = paths_all.abs()
-    num_obs = paths_all_abs['obs_idx'].max()+1
+    num_obs = paths_all_abs['obs_idx'].max() + 1
     
     sigmas_0_means = []
     sigmas_1_means = []
@@ -410,7 +408,7 @@ if __name__ == "__main__":
         ## Compute average and stderr absolute score (residual) values over window, trials
         cs_abs_0_means_fold = []
         cs_abs_0_stderr_fold = []
-        for j in range(0, int(num_obs/errs_window)):
+        for j in range(0, int(num_obs / errs_window)):
             ## Subset dataframe by window
             paths_all_abs_sub = paths_all_abs[paths_all_abs['obs_idx'].isin(np.arange(j*errs_window,(j+1)*errs_window))]
             
