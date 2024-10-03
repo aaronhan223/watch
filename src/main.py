@@ -54,8 +54,10 @@ def split_and_shift_dataset0(dataset0, dataset0_name, test0_size, dataset0_shift
         
         dataset0_test_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
         
-        return dataset0_train,  dataset0_test_0.iloc[dataset0_test_0_biased_idx]
-
+        return dataset0_train, dataset0_test_0.iloc[dataset0_test_0_biased_idx]
+    
+    elif (dataset0_shift_type == 'concept'):
+        pass
 
 
 def split_into_folds(dataset0_train, seed=0):
