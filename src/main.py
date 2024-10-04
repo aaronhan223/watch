@@ -33,16 +33,14 @@ def get_airfoil_data():
 ## Drew edited
 def split_and_shift_dataset0(dataset0, dataset0_name, test0_size, dataset0_shift_type='none', cov_shift_bias = 1.0, seed=0):
     
+    dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
+
     if (dataset0_shift_type == 'none'):
-        ## No shift within dataset0
-        dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
+        ## No shift within dataset0    
         return dataset0_train, dataset0_test_0
     
     elif (dataset0_shift_type == 'covariate'):
         ## Covariate shift within dataset0
-        
-        dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
-        
         dataset0_test_0 = dataset0_test_0.reset_index(drop=True)
         
         dataset0_train_copy = dataset0_train.copy()
@@ -56,8 +54,16 @@ def split_and_shift_dataset0(dataset0, dataset0_name, test0_size, dataset0_shift
         
         return dataset0_train, dataset0_test_0.iloc[dataset0_test_0_biased_idx]
     
-    elif (dataset0_shift_type == 'concept'):
-        pass
+    elif (dataset0_shift_type == 'label'):
+        ## Label shift within dataset0
+
+        # Define a threshold for 'alcohol' to identify high alcohol content wines
+        alcohol_threshold = dataset0_test_0['alcohol'].median()
+        # Increase the quality score by 1 for wines with alcohol above the threshold
+        dataset0_test_0.loc[dataset0_test_0['alcohol'] > alcohol_threshold, 'quality'] += 1
+        dataset0_test_0['quality'] = dataset0_test_0['quality'].clip(lower=0, upper=10)
+
+        return dataset0_train, dataset0_test_0
 
 
 def split_into_folds(dataset0_train, seed=0):
