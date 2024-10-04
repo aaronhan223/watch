@@ -30,8 +30,15 @@ def get_airfoil_data():
     airfoil.iloc[:,4] = np.log(airfoil.iloc[:,4])
     return airfoil
 
-## Drew edited
-def split_and_shift_dataset0(dataset0, dataset0_name, test0_size, dataset0_shift_type='none', cov_shift_bias = 1.0, seed=0):
+def split_and_shift_dataset0(
+    dataset0, 
+    dataset0_name, 
+    test0_size, 
+    dataset0_shift_type='none', 
+    cov_shift_bias=1.0, 
+    label_uptick=1,
+    seed=0
+):
     
     dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
 
@@ -57,14 +64,29 @@ def split_and_shift_dataset0(dataset0, dataset0_name, test0_size, dataset0_shift
     elif (dataset0_shift_type == 'label'):
         ## Label shift within dataset0
 
-        # Define a threshold for 'alcohol' to identify high alcohol content wines
-        alcohol_threshold = dataset0_test_0['alcohol'].median()
-        # Increase the quality score by 1 for wines with alcohol above the threshold
-        dataset0_test_0.loc[dataset0_test_0['alcohol'] > alcohol_threshold, 'quality'] += 1
-        dataset0_test_0['quality'] = dataset0_test_0['quality'].clip(lower=0, upper=10)
+        if 'wine' in dataset0_name:
+            # Define a threshold for 'alcohol' to identify high alcohol content wines
+            alcohol_threshold = dataset0_test_0['alcohol'].median()
+            # Increase the quality score by a number for wines with alcohol above the threshold
+            dataset0_test_0.loc[dataset0_test_0['alcohol'] > alcohol_threshold, 'quality'] += label_uptick
+            dataset0_test_0['quality'] = dataset0_test_0['quality'].clip(lower=0, upper=10)
 
         return dataset0_train, dataset0_test_0
 
+    elif (dataset0_shift_type == 'noise'):
+        ## X-dependent noise within dataset0
+        data_before_shift = dataset0_test_0.copy()
+        if 'wine' in dataset0_name:
+            dataset0_test_0['sulphates'] += np.where(
+            dataset0_test_0['quality'] >= dataset0_test_0['quality'].median(),
+            # Add positive noise for higher quality wines
+            np.random.normal(loc=0.2, scale=0.05, size=len(dataset0_test_0)),
+            # Subtract noise for lower quality wines
+            np.random.normal(loc=-0.2, scale=0.05, size=len(dataset0_test_0)))
+            # Ensure 'sulphates' remains within valid range
+            dataset0_test_0['sulphates'] = dataset0_test_0['sulphates'].clip(lower=data_before_shift['sulphates'].min(), upper=data_before_shift['sulphates'].max())
+        return dataset0_train, dataset0_test_0
+        
 
 def split_into_folds(dataset0_train, seed=0):
     y_name = dataset0_train.columns[-1] ## Outcome column must be last in dataframe
@@ -257,11 +279,12 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
 
 def training_function(dataset0, dataset0_name, dataset1=None, training_schedule='variable', \
                       sr_threshold=1e6, cu_confidence=0.99, muh_fun_name='RF', test0_size=1599/4898, \
-                      dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed'):
+                      dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed', \
+                        label_uptick=1):
     
     dataset0_train, dataset0_test_0 = split_and_shift_dataset0(dataset0, dataset0_name, test0_size=test0_size, \
                                                                dataset0_shift_type=dataset0_shift_type, \
-                                                               cov_shift_bias = cov_shift_bias, seed=seed)
+                                                               cov_shift_bias=cov_shift_bias, seed=seed, label_uptick=label_uptick)
     X, y, folds = split_into_folds(dataset0_train, seed=seed)
 
     cs_0, cs_1 = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed, cs_type=cs_type)
@@ -364,7 +387,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_seeds', type=int, default=1, help='Number of random seeds to run experiments on.')
     parser.add_argument('--errs_window', type=int, default=50, help='Num observations to average for plotting errors.')
     parser.add_argument('--cs_type', type=str, default='signed', help="Nonconformity score type: 'abs' or 'signed' ")
-    
+    parser.add_argument('--label_shift', type=int, default=1, help="Label shift value, for wine data it is an integer for label uptick.")
     
     ## python main.py dataset muh_fun_name bias
     ## python main.py --dataset0 white_wine --dataset1 red_wine --muh_fun_name NN --d0_shift_type covariate --bias 0.53
@@ -381,8 +404,7 @@ if __name__ == "__main__":
     n_seeds = args.n_seeds
     errs_window = args.errs_window
     cs_type = args.cs_type
-    print("cov_shift_bias: ", cov_shift_bias)
-    
+    label_shift = args.label_shift    
     
     ## Load datasets into dataframes
     dataset0 = eval(f'get_{dataset0_name}_data()')
@@ -397,12 +419,21 @@ if __name__ == "__main__":
     
     for seed in range(0, n_seeds):
         # training_schedule = ['variable', 'fix']
-        paths_curr = training_function(dataset0, dataset0_name, dataset1, training_schedule=training_schedule, muh_fun_name=muh_fun_name, test0_size = test0_size, dataset0_shift_type=dataset0_shift_type, cov_shift_bias=cov_shift_bias, plot_errors=plot_errors, seed=seed, cs_type=cs_type)
+        paths_curr = training_function(dataset0, dataset0_name, dataset1, training_schedule=training_schedule, muh_fun_name=muh_fun_name, test0_size = test0_size, dataset0_shift_type=dataset0_shift_type, cov_shift_bias=cov_shift_bias, plot_errors=plot_errors, seed=seed, cs_type=cs_type, label_uptick=label_uptick)
         
         paths_all = pd.concat([paths_all, paths_curr], ignore_index=True)
         
-        
-    paths_all.to_csv(f'../results/path_results_{dataset0_name}_{muh_fun_name}_{dataset0_shift_type}shift_bias{cov_shift_bias}_nseeds{n_seeds}.csv')
+    setting = '{}-{}-{}-shift_bias{}-label_shift{}-err_win{}-cs_type{}-nseeds{}'.format(
+        dataset0_name,
+        muh_fun_name,
+        dataset0_shift_type,
+        cov_shift_bias,
+        label_shift,
+        errs_window,
+        cs_type,
+        n_seeds
+    )
+    paths_all.to_csv(f'../results/' + setting + '.csv')
     
     
     ## Compute average and stderr values for plotting
