@@ -13,6 +13,11 @@ import pdb
 from utils import *
 import argparse
 import os
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import SGDClassifier
+
+
 
 
 def get_white_wine_data():
@@ -68,13 +73,50 @@ def split_into_folds(dataset0_train, seed=0):
     folds = list(kf.split(X, y))
     return X, y, folds
 
-def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0, cs_type='signed'):
+
+
+def online_lik_ratio_estimates(X_test_0, n_cal, init_phase = 50):
+    
+    T = len(X_test_0) - n_cal ## Number of test points (points after true changepoint)
+    
+    W_i = np.zeros((T, (n_cal + T)))
+    
+    ## Initialize density ratio estimation with 'init_phase' number of first test points
+    X_test_0_curr = X_test_0[0:(n_cal+init_phase)] 
+    class_labels = np.concatenate((np.zeros(n_cal), np.ones(init_phase)), axis=0)
+    clf = SGDClassifier(random_state=0, loss='log_loss', alpha=0.1, max_iter=1000)
+    clf.fit(X_test_0_curr, class_labels)
+
+    for t in range(1, T+1):
+        
+        if (t <= init_phase):
+            ## In the initial phase, assigning uniform weight to all points
+            W_i[t-1] = np.ones(n_cal+T)
+
+        else:
+            ## 
+            X_test_0_curr = X_test_0[0:(n_cal+t)] ## X_{1:(n+t)} cal and test points
+            class_labels = np.concatenate((np.zeros(n_cal), np.ones(t)), axis=0)
+            clf.partial_fit(X_test_0_curr[-1].reshape(1, -1), np.array([class_labels[-1]]))
+            lr_probs = clf.predict_proba(X_test_0)
+            W_i[t-1] = lr_probs[:,1] / lr_probs[:,0] ## p_test / p_train
+
+    return W_i
+
+
+
+
+
+def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0, cs_type='signed',\
+                       weights_to_compute='fixed_cal', dataset0_name='white_wine', cov_shift_bias=0):
     fold_results = []
     cs_0 = []
     cs_1 = []
+    W = [] ## Will contain estimated likelihood ratio weights for each fold
+    n_cals = [] ## Num cal points in each fold
     
     y_name = dataset0_test_0.columns[-1] ## Outcome must be last column
-    
+        
     for i, (train_index, cal_index) in enumerate(folds):
         if i == 2:  # Adjust the last fold to have 1099 in training
             train_index, cal_index = train_index[:-1], cal_index
@@ -100,6 +142,29 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
         X_test_0 = np.concatenate((X_cal, dataset0_test_0.drop(y_name, axis=1).to_numpy()), axis=0)
         y_test_0 = np.concatenate((y_cal, dataset0_test_0[y_name].to_numpy()), axis=0)
         y_pred_0 = model.predict(X_test_0)
+        
+        
+        
+        #### Computing likelihood ratios (estimated or oracle)
+        
+        ## Online logistic regression for weight estimation
+        W_i = [] ## List of weight est. arrays, each t-th array is length (n+t)
+        n_cal = len(X_cal)
+        n_cals.append(n_cal)
+        
+        if (weights_to_compute in ['fixed_cal', 'one_step_est']):
+            ## Estimating likelihood ratios for each cal, test point
+            ## np.shape(W_i) = (T, n_cal + T)
+            W_i = online_lik_ratio_estimates(X_test_0, n_cal, init_phase = 50)
+            W.append(W_i)
+        
+        elif (weights_to_compute == 'one_step_oracle'):
+            ## Oracle one-step likelihood ratios
+            ## np.shape(W_i) = (n_cal + T, )
+            W_i = get_w(x_pca=None, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
+            W.append(W_i)
+           
+            
         
         # Evaluate using the calibration set + test set 1 (Scenario 1)
         if (dataset1 is not None):
@@ -139,13 +204,14 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             })
             
     
-    return cs_0, cs_1
+    return cs_0, cs_1, W, n_cals
 
 
 def calculate_p_values(conformity_scores):
     """
     Calculate the conformal p-values from conformity scores.
     """
+    
     n = len(conformity_scores)
     p_values = np.array([(np.sum(conformity_scores[:i] < conformity_scores[i]) + 
                          np.random.uniform() * np.sum(conformity_scores[:i] == conformity_scores[i])) / (i + 1)
@@ -155,20 +221,78 @@ def calculate_p_values(conformity_scores):
 
 ## Drew added
 ## Note: This is for calculating the weighted p-values once the normalized weights have already been calculated
-def calculate_weighted_p_values(conformity_scores, normalized_weights):
+def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_compute='fixed_cal'):
     """
     Calculate the weighted conformal p-values from conformity scores and given normalized weights 
     (i.e., enforce np.sum(normalized_weights) = 1).
-    """
-    ## Ensuring that weights are normalized, with slight flexibility to account for float-point issues
-    if (np.abs(1 - np.sum(normalized_weights)) > 0.00001):
-        raise Exception("normalized_weights must sum to 1")
     
-    n = len(conformity_scores)
-    p_values = np.array([(np.sum(normalized_weights[conformity_scores[:i] < conformity_scores[i]]) + \
-                         np.random.uniform() * np.sum(normalized_weights[conformity_scores[:i] == conformity_scores[i]])) \
-                         / (i + 1) for i in range(n)])
-    return p_values
+    W_i : List of likelihood ratio weight est. arrays, each t-th array is length (n_cal+t)
+    """
+    init_phase = 100
+    wp_values = np.zeros(len(conformity_scores))
+    
+    
+    ## p-values for original calibration set calculated as before
+    wp_values[0:(n_cal+init_phase)] = calculate_p_values(conformity_scores[0:(n_cal+init_phase)]) 
+        
+    if (weights_to_compute == 'fixed_cal'):
+
+        
+        T = len(conformity_scores) - n_cal ## Number of total test observations
+        idx_include = np.concatenate((np.repeat(True, n_cal), np.repeat(False, T)), axis=0) ## indicies to include
+        
+        ## Note: in loop here, t_ := t-1 for zero-indexing
+        for t_ in range(0, T):
+            
+            ## idx_include implements indices for 'fixed cal' ie, comparing to [0:n_cal] \cup n_cal + t_ 
+            idx_include[n_cal+t_] = True ## Move to curr test point
+            if (t_ > 0):
+                idx_include[n_cal+t_-1] = False ## Exclude most recent test point again (except at start, is a cal point)
+            
+            ## Subset conformity scores and weights based on idx_include
+            conformity_scores_t = conformity_scores[idx_include]
+            W_i_t = W_i[t_][idx_include[0:(n_cal + t_ +1)]]
+            
+            ## Normalize weights on subset of weights
+            normalized_weights_t = W_i_t / np.sum(W_i_t)
+            
+            ## Calculate weighted p-values
+            wp_values[n_cal+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
+                            np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
+            
+
+    
+    elif (weights_to_compute in ['one_step_oracle', 'one_step_est']):
+        
+        T = len(conformity_scores) - n_cal ## Number of total test observations
+        
+        ## Note: in loop here, t_ := t-1 for zero-indexing
+        for t_ in range(init_phase, T):
+            
+            ## Subset conformity scores and weights based on idx_include
+            conformity_scores_t = conformity_scores[:(n_cal+t_+1)]
+            
+            if (weights_to_compute == 'one_step_est'):
+                W_i_t = W_i[t_][:(n_cal+t_+1)]
+            else:
+                W_i_t = W_i[:(n_cal+t_+1)]
+            
+            ## Normalize weights on subset of weights
+            normalized_weights_t = W_i_t / np.sum(W_i_t)
+            
+                        
+            ## Calculate weighted p-values
+            wp_values[n_cal+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
+                            np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
+           
+    
+    
+    else:
+        raise Exception("Note implemented")
+        
+    return wp_values
+
+
 
 
 def ville_procedure(p_values, threshold=100):
@@ -236,8 +360,20 @@ def simple_jumper_martingale(p_values, J=0.01, threshold=100):
     
     return False, np.array(martingale_values)
 
-def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence):
+def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, n_cal, weights_to_compute='fixed_cal'):
     p_values = calculate_p_values(conformity_score)
+    
+    if (weights_to_compute == 'fixed_cal'):
+        p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute)
+    
+    elif (weights_to_compute == 'one_step_est'):
+        ## One step weights, ie depth d=1 weights
+        p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute)
+        
+    elif (weights_to_compute == 'one_step_oracle'):
+        ## One step weights, ie depth d=1 weights
+        p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute)
+    
     retrain_m, martingale_value = simple_jumper_martingale(p_values)
 
     if training_schedule == 'variable':
@@ -251,22 +387,26 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
 
 def training_function(dataset0, dataset0_name, dataset1=None, training_schedule='variable', \
                       sr_threshold=1e6, cu_confidence=0.99, muh_fun_name='RF', test0_size=1599/4898, \
-                      dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed'):
+                      dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed',\
+                     weights_to_compute='fixed_cal'):
     
     dataset0_train, dataset0_test_0 = split_and_shift_dataset0(dataset0, dataset0_name, test0_size=test0_size, \
                                                                dataset0_shift_type=dataset0_shift_type, \
                                                                cov_shift_bias = cov_shift_bias, seed=seed)
     X, y, folds = split_into_folds(dataset0_train, seed=seed)
 
-    cs_0, cs_1 = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed, cs_type=cs_type)
+    cs_0, cs_1, W, n_cals = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed, cs_type=cs_type, weights_to_compute=weights_to_compute, dataset0_name=dataset0_name, cov_shift_bias=cov_shift_bias)
 
     fold_martingales_0, fold_martingales_1 = [], []
     sigmas_0, sigmas_1 = [], []
     retrain_m_count_0, retrain_s_count_0 = 0, 0
     retrain_m_count_1, retrain_s_count_1 = 0, 0
     
-    for score_0 in cs_0:
-        m_0, s_0, martingale_value_0, sigma_0 = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence)
+    for i, score_0 in enumerate(cs_0):
+        if (weights_to_compute in ['fixed_cal', 'one_step_est', 'one_step_oracle']):
+            m_0, s_0, martingale_value_0, sigma_0 = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], weights_to_compute)
+        else:
+            m_0, s_0, martingale_value_0, sigma_0 = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, None, None, weights_to_compute)
         if m_0:
             retrain_m_count_0 += 1
         if s_0:
@@ -275,8 +415,8 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         sigmas_0.append(sigma_0)
         
         
-    for score_1 in cs_1:
-        m_1, s_1, martingale_value_1, sigma_1 = retrain_count(score_1, training_schedule, sr_threshold, cu_confidence)
+    for i, score_1 in enumerate(cs_1):
+        m_1, s_1, martingale_value_1, sigma_1 = retrain_count(score_1, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], weights_to_compute)
         if m_1:
             retrain_m_count_1 += 1
         if s_1:
@@ -358,6 +498,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_seeds', type=int, default=1, help='Number of random seeds to run experiments on.')
     parser.add_argument('--errs_window', type=int, default=50, help='Num observations to average for plotting errors.')
     parser.add_argument('--cs_type', type=str, default='signed', help="Nonconformity score type: 'abs' or 'signed' ")
+    parser.add_argument('--weights_to_compute', type=str, default='fixed_cal', help='Type of weight computation to do.')
     
     
     ## python main.py dataset muh_fun_name bias
@@ -375,6 +516,7 @@ if __name__ == "__main__":
     n_seeds = args.n_seeds
     errs_window = args.errs_window
     cs_type = args.cs_type
+    weights_to_compute = args.weights_to_compute
     print("cov_shift_bias: ", cov_shift_bias)
     
     
@@ -391,7 +533,7 @@ if __name__ == "__main__":
     
     for seed in range(0, n_seeds):
         # training_schedule = ['variable', 'fix']
-        paths_curr = training_function(dataset0, dataset0_name, dataset1, training_schedule=training_schedule, muh_fun_name=muh_fun_name, test0_size = test0_size, dataset0_shift_type=dataset0_shift_type, cov_shift_bias=cov_shift_bias, plot_errors=plot_errors, seed=seed, cs_type=cs_type)
+        paths_curr = training_function(dataset0, dataset0_name, dataset1, training_schedule=training_schedule, muh_fun_name=muh_fun_name, test0_size = test0_size, dataset0_shift_type=dataset0_shift_type, cov_shift_bias=cov_shift_bias, plot_errors=plot_errors, seed=seed, cs_type=cs_type, weights_to_compute=weights_to_compute)
         
         paths_all = pd.concat([paths_all, paths_curr], ignore_index=True)
         
@@ -471,5 +613,6 @@ if __name__ == "__main__":
         cov_shift_bias=cov_shift_bias,
         plot_errors=plot_errors,
         n_seeds=n_seeds,
-        cs_type=cs_type
+        cs_type=cs_type,
+        weights_to_compute=weights_to_compute
     )
