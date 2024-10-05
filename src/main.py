@@ -7,6 +7,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.neural_network import MLPRegressor
 from sklearn.metrics import mean_absolute_error
+from tqdm import tqdm
 import pdb
 
 ## Drew added
@@ -35,19 +36,27 @@ def get_airfoil_data():
     airfoil.iloc[:,4] = np.log(airfoil.iloc[:,4])
     return airfoil
 
-## Drew edited
-def split_and_shift_dataset0(dataset0, dataset0_name, test0_size, dataset0_shift_type='none', cov_shift_bias = 1.0, seed=0):
+
+def split_and_shift_dataset0(
+    dataset0, 
+    dataset0_name, 
+    test0_size, 
+    dataset0_shift_type='none', 
+    cov_shift_bias=1.0, 
+    label_uptick=1,
+    seed=0,
+    noise_mu=0,
+    noise_sigma=0
+):
     
+    dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
+
     if (dataset0_shift_type == 'none'):
-        ## No shift within dataset0
-        dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
+        ## No shift within dataset0    
         return dataset0_train, dataset0_test_0
     
     elif (dataset0_shift_type == 'covariate'):
         ## Covariate shift within dataset0
-        
-        dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
-        
         dataset0_test_0 = dataset0_test_0.reset_index(drop=True)
         
         dataset0_train_copy = dataset0_train.copy()
@@ -56,14 +65,36 @@ def split_and_shift_dataset0(dataset0, dataset0_name, test0_size, dataset0_shift
         dataset0_test_0_copy = dataset0_test_0.copy()
         X_test_0 = dataset0_test_0_copy.iloc[:, :-1].values
         
-        
         dataset0_test_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
         
         return dataset0_train, dataset0_test_0.iloc[dataset0_test_0_biased_idx]
     
-    elif (dataset0_shift_type == 'concept'):
-        pass
+    elif (dataset0_shift_type == 'label'):
+        ## Label shift within dataset0
 
+        if 'wine' in dataset0_name:
+            # Define a threshold for 'alcohol' to identify high alcohol content wines
+            alcohol_threshold = dataset0_test_0['alcohol'].median()
+            # Increase the quality score by a number for wines with alcohol above the threshold
+            dataset0_test_0.loc[dataset0_test_0['alcohol'] > alcohol_threshold, 'quality'] += label_uptick
+            dataset0_test_0['quality'] = dataset0_test_0['quality'].clip(lower=0, upper=10)
+
+        return dataset0_train, dataset0_test_0
+
+    elif (dataset0_shift_type == 'noise'):
+        ## X-dependent noise within dataset0
+        data_before_shift = dataset0_test_0.copy()
+        if 'wine' in dataset0_name:
+            dataset0_test_0['sulphates'] += np.where(
+            dataset0_test_0['quality'] >= dataset0_test_0['quality'].median(),
+            # Add positive noise for higher quality wines
+            np.random.normal(loc=noise_mu, scale=noise_sigma, size=len(dataset0_test_0)),
+            # Subtract noise for lower quality wines
+            np.random.normal(loc=-noise_mu, scale=noise_sigma, size=len(dataset0_test_0)))
+            # Ensure 'sulphates' remains within valid range
+            dataset0_test_0['sulphates'] = dataset0_test_0['sulphates'].clip(lower=data_before_shift['sulphates'].min(), upper=data_before_shift['sulphates'].max())
+        return dataset0_train, dataset0_test_0
+        
 
 def split_into_folds(dataset0_train, seed=0):
     y_name = dataset0_train.columns[-1] ## Outcome column must be last in dataframe
@@ -72,7 +103,6 @@ def split_into_folds(dataset0_train, seed=0):
     kf = KFold(n_splits=3, shuffle=True, random_state=seed)
     folds = list(kf.split(X, y))
     return X, y, folds
-
 
 
 def online_lik_ratio_estimates(X_test_0, n_cal, init_phase = 50):
@@ -202,8 +232,7 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
                 'fold': i + 1,
                 'scenario_0_predictions': y_pred_0,
             })
-            
-    
+                
     return cs_0, cs_1, W, n_cals
 
 
@@ -251,7 +280,7 @@ def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_comput
             
             ## Subset conformity scores and weights based on idx_include
             conformity_scores_t = conformity_scores[idx_include]
-            W_i_t = W_i[t_][idx_include[0:(n_cal + t_ +1)]]
+            W_i_t = W_i[t_][idx_include]
             
             ## Normalize weights on subset of weights
             normalized_weights_t = W_i_t / np.sum(W_i_t)
@@ -295,7 +324,7 @@ def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_comput
 
 
 
-def ville_procedure(p_values, threshold=100):
+def ville_procedure(p_values, threshold=100, verbose=False):
     """
     Implements the Ville procedure. Raises an alarm when the martingale exceeds the threshold.
     """
@@ -304,12 +333,12 @@ def ville_procedure(p_values, threshold=100):
         # This implies that the martingale grows if the p-value is small (indicating that the observation is unlikely under the null hypothesis)
         # and shrinks if the p-value is large.
         martingale *= (1 / p)
-        if martingale >= threshold:
+        if martingale >= threshold and verbose:
             print(f"Alarm raised at observation {i + 1} with martingale value = {martingale}")
             # break
     return martingale
 
-def cusum_procedure(S, alpha):
+def cusum_procedure(S, alpha, verbose=False):
     """
     Implements the CUSUM statistic.
     """
@@ -317,24 +346,24 @@ def cusum_procedure(S, alpha):
     threshold = np.percentile(S, 100 * alpha)
     for n in range(1, len(S)):
         gamma[n] = max(S[n] / S[i] for i in range(n))
-        if gamma[n] >= threshold:
+        if gamma[n] >= threshold and verbose:
             print(f"Alarm raised at observation {n} with gamma={gamma[n]}")
             # return True, gamma
     return False, gamma
 
-def shiryaev_roberts_procedure(S, c):
+def shiryaev_roberts_procedure(S, c, verbose=False):
     """
     Implements the Shiryaev-Roberts statistic.
     """
     sigma = np.zeros(len(S))
     for n in range(1, len(S)):
         sigma[n] = sum(S[n] / S[i] for i in range(n))
-        if sigma[n] >= c:
+        if sigma[n] >= c and verbose:
             print(f"Alarm raised at observation {n} with sigma={sigma[n]}")
             # return True, sigma
     return False, sigma
 
-def simple_jumper_martingale(p_values, J=0.01, threshold=100):
+def simple_jumper_martingale(p_values, J=0.01, threshold=100, verbose=False):
     """
     Implements the Simple Jumper martingale betting strategy.
     """
@@ -354,14 +383,16 @@ def simple_jumper_martingale(p_values, J=0.01, threshold=100):
         C = C_minus1 + C_0 + C_1
         martingale_values.append(C)
 
-        if C >= threshold:
+        if C >= threshold and verbose:
             print(f"Alarm raised at observation {i} with martingale value={C}")
             # return True, np.array(martingale_values)
     
     return False, np.array(martingale_values)
 
-def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, n_cal, weights_to_compute='fixed_cal'):
+
+def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, n_cal, verbose=False, weights_to_compute='fixed_cal'):
     p_values = calculate_p_values(conformity_score)
+    
     
     if (weights_to_compute == 'fixed_cal'):
         p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute)
@@ -374,12 +405,12 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
         ## One step weights, ie depth d=1 weights
         p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute)
     
-    retrain_m, martingale_value = simple_jumper_martingale(p_values)
+    retrain_m, martingale_value = simple_jumper_martingale(p_values, verbose=verbose)
 
     if training_schedule == 'variable':
-        retrain_s, sigma = shiryaev_roberts_procedure(martingale_value, sr_threshold)
+        retrain_s, sigma = shiryaev_roberts_procedure(martingale_value, sr_threshold, verbose)
     else:
-        retrain_s, sigma = cusum_procedure(martingale_value, cu_confidence)
+        retrain_s, sigma = cusum_procedure(martingale_value, cu_confidence, verbose)
     
     return retrain_m, retrain_s, martingale_value, sigma
 
@@ -387,12 +418,16 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
 
 def training_function(dataset0, dataset0_name, dataset1=None, training_schedule='variable', \
                       sr_threshold=1e6, cu_confidence=0.99, muh_fun_name='RF', test0_size=1599/4898, \
-                      dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed',\
-                     weights_to_compute='fixed_cal'):
+                      dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed', \
+                        label_uptick=1, verbose=False, noise_mu=0, noise_sigma=0, weights_to_compute='fixed_cal'):
+    
+    
     
     dataset0_train, dataset0_test_0 = split_and_shift_dataset0(dataset0, dataset0_name, test0_size=test0_size, \
                                                                dataset0_shift_type=dataset0_shift_type, \
-                                                               cov_shift_bias = cov_shift_bias, seed=seed)
+                                                               cov_shift_bias=cov_shift_bias, seed=seed, \
+                                                               label_uptick=label_uptick, noise_mu=noise_mu,\
+                                                                noise_sigma=noise_sigma)
     X, y, folds = split_into_folds(dataset0_train, seed=seed)
 
     cs_0, cs_1, W, n_cals = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed, cs_type=cs_type, weights_to_compute=weights_to_compute, dataset0_name=dataset0_name, cov_shift_bias=cov_shift_bias)
@@ -402,11 +437,13 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     retrain_m_count_0, retrain_s_count_0 = 0, 0
     retrain_m_count_1, retrain_s_count_1 = 0, 0
     
+    
     for i, score_0 in enumerate(cs_0):
         if (weights_to_compute in ['fixed_cal', 'one_step_est', 'one_step_oracle']):
-            m_0, s_0, martingale_value_0, sigma_0 = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], weights_to_compute)
+            m_0, s_0, martingale_value_0, sigma_0 = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], verbose, weights_to_compute)
         else:
-            m_0, s_0, martingale_value_0, sigma_0 = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, None, None, weights_to_compute)
+            m_0, s_0, martingale_value_0, sigma_0 = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, None, None, verbose, weights_to_compute)
+
         if m_0:
             retrain_m_count_0 += 1
         if s_0:
@@ -416,7 +453,8 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         
         
     for i, score_1 in enumerate(cs_1):
-        m_1, s_1, martingale_value_1, sigma_1 = retrain_count(score_1, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], weights_to_compute)
+        m_1, s_1, martingale_value_1, sigma_1 = retrain_count(score_1, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], verbose, weights_to_compute)
+
         if m_1:
             retrain_m_count_1 += 1
         if s_1:
@@ -424,49 +462,28 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         fold_martingales_1.append(martingale_value_1)
         sigmas_1.append(sigma_1)
     
-        
-    ## Note: Moved plotting to outside training function
-#     plot_martingale_paths(
-#         dataset0_paths=sigmas_0, 
-#         dataset0_name=dataset0_name,
-#         dataset1_paths=sigmas_1, 
-#         cs_0=cs_0,
-#         cs_1=cs_1,
-#         change_point_index=len(X)/3,
-#         title="Paths of Shiryaev-Roberts Procedure",
-#         ylabel="Shiryaev-Roberts Statistics",
-#         file_name="shiryaev_roberts",
-#         dataset0_shift_type=dataset0_shift_type,
-#         cov_shift_bias=cov_shift_bias,
-#         plot_errors=plot_errors
-#     )
-    
-    
-
     # Decide to retrain based on two out of three martingales exceeding the threshold
-    if retrain_m_count_0 >= 2 or retrain_s_count_0 >= 2:
-        retrain_decision_0 = True
-    else:
-        retrain_decision_0 = False
+    # if retrain_m_count_0 >= 2 or retrain_s_count_0 >= 2:
+    #     retrain_decision_0 = True
+    # else:
+    #     retrain_decision_0 = False
 
-    if retrain_m_count_1 >= 2 or retrain_s_count_1 >= 2:
-        retrain_decision_1 = True
-    else:
-        retrain_decision_1 = False
+    # if retrain_m_count_1 >= 2 or retrain_s_count_1 >= 2:
+    #     retrain_decision_1 = True
+    # else:
+    #     retrain_decision_1 = False
 
-    if retrain_decision_0:
-        print("Retraining the model for normal white wine...")
-    else:
-        print("No retraining needed for normal white wine.")
+    # if retrain_decision_0:
+    #     print("Retraining the model for normal white wine...")
+    # else:
+    #     print("No retraining needed for normal white wine.")
 
-    if retrain_decision_1:
-        print("Retraining the model for red wine...")
-    else:
-        print("No retraining needed for red wine.")
-        
+    # if retrain_decision_1:
+    #     print("Retraining the model for red wine...")
+    # else:
+    #     print("No retraining needed for red wine.")
         
     min_len = np.min([len(sigmas_0[i]) for i in range(0, len(sigmas_0))])
-        
     
     paths = pd.DataFrame(np.c_[np.repeat(seed, min_len), np.arange(0, min_len)], columns = ['itrial', 'obs_idx'])
     for k in range(0, len(sigmas_0)):
@@ -479,7 +496,6 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     return paths
 
         
-        
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Run WTR experiments.')
@@ -491,6 +507,7 @@ if __name__ == "__main__":
     parser.add_argument('--muh_fun_name', type=str, default='RF', help='Mu (mean) function predictor. RF or NN.')
     parser.add_argument('--test0_size', type=float, default=1599/4898, \
                         help='value in (0,1); Proportion of dataset0 used for testing')
+    parser.add_argument('--verbose', action='store_true', help="Whether to print out alarm raising info.")
     parser.add_argument('--d0_shift_type', type=str, default='none', help='Shift type to induce in dataset0.')
     parser.add_argument('--bias', type=float, default=0.0, help='Scalar bias magnitude parameter lmbda for exponential tilting covariate shift.')
     parser.add_argument('--plot_errors', type=bool, default=False, help='Whether to also plot absolute errors.')
@@ -499,8 +516,9 @@ if __name__ == "__main__":
     parser.add_argument('--errs_window', type=int, default=50, help='Num observations to average for plotting errors.')
     parser.add_argument('--cs_type', type=str, default='signed', help="Nonconformity score type: 'abs' or 'signed' ")
     parser.add_argument('--weights_to_compute', type=str, default='fixed_cal', help='Type of weight computation to do.')
-    
-    
+    parser.add_argument('--label_shift', type=int, default=1, help="Label shift value, for wine data it is an integer for label uptick.")
+    parser.add_argument('--noise_mu', type=float, default=0.2, help="x-dependent noise mean, wine data")
+    parser.add_argument('--noise_sigma', type=float, default=0.05, help="x-dependent noise variance, wine data")
     ## python main.py dataset muh_fun_name bias
     ## python main.py --dataset0 white_wine --dataset1 red_wine --muh_fun_name NN --d0_shift_type covariate --bias 0.53
     
@@ -519,6 +537,7 @@ if __name__ == "__main__":
     weights_to_compute = args.weights_to_compute
     print("cov_shift_bias: ", cov_shift_bias)
     
+    label_shift = args.label_shift    
     
     ## Load datasets into dataframes
     dataset0 = eval(f'get_{dataset0_name}_data()')
@@ -527,19 +546,43 @@ if __name__ == "__main__":
     else:
         dataset1 = None
     
-    
     paths_all = pd.DataFrame()
-
-    
-    for seed in range(0, n_seeds):
+    print(f'Running {n_seeds} random experiments...\n')
+    for seed in tqdm(range(0, n_seeds)):
         # training_schedule = ['variable', 'fix']
-        paths_curr = training_function(dataset0, dataset0_name, dataset1, training_schedule=training_schedule, muh_fun_name=muh_fun_name, test0_size = test0_size, dataset0_shift_type=dataset0_shift_type, cov_shift_bias=cov_shift_bias, plot_errors=plot_errors, seed=seed, cs_type=cs_type, weights_to_compute=weights_to_compute)
-        
+
+        paths_curr = training_function(
+            dataset0, 
+            dataset0_name, 
+            dataset1, 
+            training_schedule=training_schedule, 
+            muh_fun_name=muh_fun_name, 
+            test0_size = test0_size, 
+            dataset0_shift_type=dataset0_shift_type, 
+            cov_shift_bias=cov_shift_bias, 
+            plot_errors=plot_errors, 
+            seed=seed, 
+            cs_type=cs_type, 
+            label_uptick=label_shift,
+            verbose=args.verbose,
+            noise_mu=args.noise_mu,
+            noise_sigma=args.noise_sigma,
+            weights_to_compute=weights_to_compute
+        )
         paths_all = pd.concat([paths_all, paths_curr], ignore_index=True)
         
-        
-    paths_all.to_csv(f'../results/path_results_{dataset0_name}_{muh_fun_name}_{dataset0_shift_type}shift_bias{cov_shift_bias}_nseeds{n_seeds}.csv')
-    
+    setting = '{}-{}-{}-shift_bias{}-label_shift{}-err_win{}-cs_type{}-nseeds{}-W{}'.format(
+        dataset0_name,
+        muh_fun_name,
+        dataset0_shift_type,
+        cov_shift_bias,
+        label_shift,
+        errs_window,
+        cs_type,
+        n_seeds,
+        weights_to_compute
+    )
+    paths_all.to_csv(f'../results/' + setting + '.csv')
     
     ## Compute average and stderr values for plotting
     paths_all_abs = paths_all.abs()
@@ -568,12 +611,11 @@ if __name__ == "__main__":
             
             ## Averages and stderrs for that window
             cs_abs_0_means_fold.append(paths_all_abs_sub['cs_0_'+str(i)].mean())
-            cs_abs_0_stderr_fold.append(paths_all_abs_sub['cs_0_'+str(i)].std()/ np.sqrt(n_seeds*errs_window))
+            cs_abs_0_stderr_fold.append(paths_all_abs_sub['cs_0_'+str(i)].std() / np.sqrt(n_seeds*errs_window))
         
         ## Averages and stderrs for that fold
         cs_abs_0_means.append(cs_abs_0_means_fold)
         cs_abs_0_stderr.append(cs_abs_0_stderr_fold)
-        
         
     if (dataset1 is not None):
         for i in range(0, 3):
@@ -595,24 +637,27 @@ if __name__ == "__main__":
             cs_abs_1_means.append(cs_abs_1_means_fold)
             cs_abs_1_stderr.append(cs_abs_1_stderr_fold)
         
-    
     plot_martingale_paths(
         dataset0_paths=sigmas_0_means,
         dataset0_name=dataset0_name,
         dataset1_paths=sigmas_1_means, 
+        dataset1_name=dataset1_name,
         cs_abs_0_means=cs_abs_0_means,
         cs_abs_1_means=cs_abs_1_means,
         cs_abs_0_stderr=cs_abs_0_stderr,
         cs_abs_1_stderr=cs_abs_1_stderr,
         errs_window=errs_window,
-        change_point_index= len(dataset0)*(1-test0_size)/3,
+        change_point_index=len(dataset0)*(1-test0_size)/3,
         title="Average paths of Shiryaev-Roberts Procedure",
         ylabel="Shiryaev-Roberts Statistics",
-        file_name="shiryaev_roberts",
+        martingale="shiryaev_roberts",
         dataset0_shift_type=dataset0_shift_type,
         cov_shift_bias=cov_shift_bias,
+        label_shift_bias=label_shift,
+        noise_mu=args.noise_mu,
+        noise_sigma=args.noise_sigma,
         plot_errors=plot_errors,
         n_seeds=n_seeds,
         cs_type=cs_type,
-        weights_to_compute=weights_to_compute
+        setting=setting
     )
