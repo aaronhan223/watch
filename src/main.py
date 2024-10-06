@@ -74,10 +74,13 @@ def split_and_shift_dataset0(
 
         if 'wine' in dataset0_name:
             # Define a threshold for 'alcohol' to identify high alcohol content wines
-            alcohol_threshold = dataset0_test_0['alcohol'].median()
+            alcohol_threshold = dataset0_test_0['alcohol'].quantile(label_uptick)
             # Increase the quality score by a number for wines with alcohol above the threshold
-            dataset0_test_0.loc[dataset0_test_0['alcohol'] > alcohol_threshold, 'quality'] += label_uptick
+            dataset0_test_0.loc[dataset0_test_0['alcohol'] > alcohol_threshold, 'quality'] += 1
             dataset0_test_0['quality'] = dataset0_test_0['quality'].clip(lower=0, upper=10)
+        elif 'airfoil' in dataset0_name:
+            velocity_threshold = dataset0_test_0['Velocity'].median()
+            dataset0_test_0.loc[dataset0_test_0['Velocity'] > velocity_threshold, 'Sound'] += 3
 
         return dataset0_train, dataset0_test_0
 
@@ -93,6 +96,22 @@ def split_and_shift_dataset0(
             np.random.normal(loc=-noise_mu, scale=noise_sigma, size=len(dataset0_test_0)))
             # Ensure 'sulphates' remains within valid range
             dataset0_test_0['sulphates'] = dataset0_test_0['sulphates'].clip(lower=data_before_shift['sulphates'].min(), upper=data_before_shift['sulphates'].max())
+
+        elif 'airfoil' in dataset0_name:
+            # Compute the median of Scaled sound pressure level
+            spl_median = dataset0_test_0['Sound'].median()
+            dataset0_test_0['Suction'] += np.where(
+                dataset0_test_0['Sound'] >= spl_median,
+                # Add positive noise for higher sound pressure levels
+                np.random.normal(loc=0.0001, scale=0.00005, size=len(dataset0_test_0)),
+                # Subtract noise for lower sound pressure levels
+                np.random.normal(loc=-0.0001, scale=0.00005, size=len(dataset0_test_0))
+            )
+            # Ensure 'Suction_side_displacement_thickness' remains within valid range
+            min_value = data_before_shift['Suction'].min()
+            max_value = data_before_shift['Suction'].max()
+            dataset0_test_0['Suction'] = dataset0_test_0['Suction'].clip(lower=min_value, upper=max_value)
+        
         return dataset0_train, dataset0_test_0
         
 
@@ -516,7 +535,7 @@ if __name__ == "__main__":
     parser.add_argument('--errs_window', type=int, default=50, help='Num observations to average for plotting errors.')
     parser.add_argument('--cs_type', type=str, default='signed', help="Nonconformity score type: 'abs' or 'signed' ")
     parser.add_argument('--weights_to_compute', type=str, default='fixed_cal', help='Type of weight computation to do.')
-    parser.add_argument('--label_shift', type=int, default=1, help="Label shift value, for wine data it is an integer for label uptick.")
+    parser.add_argument('--label_shift', type=float, default=1, help="Label shift value.")
     parser.add_argument('--noise_mu', type=float, default=0.2, help="x-dependent noise mean, wine data")
     parser.add_argument('--noise_sigma', type=float, default=0.05, help="x-dependent noise variance, wine data")
     ## python main.py dataset muh_fun_name bias
@@ -661,3 +680,4 @@ if __name__ == "__main__":
         cs_type=cs_type,
         setting=setting
     )
+    print('Program done!\n')
