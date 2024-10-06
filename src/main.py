@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 from plot import plot_martingale_paths
-from sklearn.model_selection import train_test_split, KFold, cross_val_score
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
@@ -10,150 +9,13 @@ from sklearn.metrics import mean_absolute_error
 from tqdm import tqdm
 import pdb
 
-## Drew added
 from utils import *
+from martingales import *
+from p_values import *
 import argparse
-import os
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import SGDClassifier
-
-
-
-
-def get_white_wine_data():
-    white_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv', sep=';')
-    return white_wine
-
-def get_red_wine_data():
-    red_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv', sep=';')
-    return red_wine
-
-def get_airfoil_data():
-    airfoil = pd.read_csv(os.getcwd() + '/../datasets/airfoil/airfoil.txt', sep = '\t', header=None)
-    airfoil.columns = ["Frequency","Angle","Chord","Velocity","Suction","Sound"]
-    airfoil.iloc[:,0] = np.log(airfoil.iloc[:,0])
-    airfoil.iloc[:,4] = np.log(airfoil.iloc[:,4])
-    return airfoil
-
-
-def split_and_shift_dataset0(
-    dataset0, 
-    dataset0_name, 
-    test0_size, 
-    dataset0_shift_type='none', 
-    cov_shift_bias=1.0, 
-    label_uptick=1,
-    seed=0,
-    noise_mu=0,
-    noise_sigma=0
-):
-    
-    dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
-
-    if (dataset0_shift_type == 'none'):
-        ## No shift within dataset0    
-        return dataset0_train, dataset0_test_0
-    
-    elif (dataset0_shift_type == 'covariate'):
-        ## Covariate shift within dataset0
-        dataset0_test_0 = dataset0_test_0.reset_index(drop=True)
-        
-        dataset0_train_copy = dataset0_train.copy()
-        
-        X_train = dataset0_train_copy.iloc[:, :-1].values
-        dataset0_test_0_copy = dataset0_test_0.copy()
-        X_test_0 = dataset0_test_0_copy.iloc[:, :-1].values
-        
-        dataset0_test_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
-        
-        return dataset0_train, dataset0_test_0.iloc[dataset0_test_0_biased_idx]
-    
-    elif (dataset0_shift_type == 'label'):
-        ## Label shift within dataset0
-
-        if 'wine' in dataset0_name:
-            # Define a threshold for 'alcohol' to identify high alcohol content wines
-            alcohol_threshold = dataset0_test_0['alcohol'].quantile(label_uptick)
-            # Increase the quality score by a number for wines with alcohol above the threshold
-            dataset0_test_0.loc[dataset0_test_0['alcohol'] > alcohol_threshold, 'quality'] += 1
-            dataset0_test_0['quality'] = dataset0_test_0['quality'].clip(lower=0, upper=10)
-        elif 'airfoil' in dataset0_name:
-            velocity_threshold = dataset0_test_0['Velocity'].median()
-            dataset0_test_0.loc[dataset0_test_0['Velocity'] > velocity_threshold, 'Sound'] += 3
-
-        return dataset0_train, dataset0_test_0
-
-    elif (dataset0_shift_type == 'noise'):
-        ## X-dependent noise within dataset0
-        data_before_shift = dataset0_test_0.copy()
-        if 'wine' in dataset0_name:
-            dataset0_test_0['sulphates'] += np.where(
-            dataset0_test_0['quality'] >= dataset0_test_0['quality'].median(),
-            # Add positive noise for higher quality wines
-            np.random.normal(loc=noise_mu, scale=noise_sigma, size=len(dataset0_test_0)),
-            # Subtract noise for lower quality wines
-            np.random.normal(loc=-noise_mu, scale=noise_sigma, size=len(dataset0_test_0)))
-            # Ensure 'sulphates' remains within valid range
-            dataset0_test_0['sulphates'] = dataset0_test_0['sulphates'].clip(lower=data_before_shift['sulphates'].min(), upper=data_before_shift['sulphates'].max())
-
-        elif 'airfoil' in dataset0_name:
-            # Compute the median of Scaled sound pressure level
-            spl_median = dataset0_test_0['Sound'].median()
-            dataset0_test_0['Suction'] += np.where(
-                dataset0_test_0['Sound'] >= spl_median,
-                # Add positive noise for higher sound pressure levels
-                np.random.normal(loc=0.0001, scale=0.00005, size=len(dataset0_test_0)),
-                # Subtract noise for lower sound pressure levels
-                np.random.normal(loc=-0.0001, scale=0.00005, size=len(dataset0_test_0))
-            )
-            # Ensure 'Suction_side_displacement_thickness' remains within valid range
-            min_value = data_before_shift['Suction'].min()
-            max_value = data_before_shift['Suction'].max()
-            dataset0_test_0['Suction'] = dataset0_test_0['Suction'].clip(lower=min_value, upper=max_value)
-        
-        return dataset0_train, dataset0_test_0
-        
-
-def split_into_folds(dataset0_train, seed=0):
-    y_name = dataset0_train.columns[-1] ## Outcome column must be last in dataframe
-    X = dataset0_train.drop(y_name, axis=1).to_numpy()
-    y = dataset0_train[y_name].to_numpy()
-    kf = KFold(n_splits=3, shuffle=True, random_state=seed)
-    folds = list(kf.split(X, y))
-    return X, y, folds
-
-
-def online_lik_ratio_estimates(X_test_0, n_cal, init_phase = 50):
-    
-    T = len(X_test_0) - n_cal ## Number of test points (points after true changepoint)
-    
-    W_i = np.zeros((T, (n_cal + T)))
-    
-    ## Initialize density ratio estimation with 'init_phase' number of first test points
-    X_test_0_curr = X_test_0[0:(n_cal+init_phase)] 
-    class_labels = np.concatenate((np.zeros(n_cal), np.ones(init_phase)), axis=0)
-    clf = SGDClassifier(random_state=0, loss='log_loss', alpha=0.1, max_iter=1000)
-    clf.fit(X_test_0_curr, class_labels)
-
-    for t in range(1, T+1):
-        
-        if (t <= init_phase):
-            ## In the initial phase, assigning uniform weight to all points
-            W_i[t-1] = np.ones(n_cal+T)
-
-        else:
-            ## 
-            X_test_0_curr = X_test_0[0:(n_cal+t)] ## X_{1:(n+t)} cal and test points
-            class_labels = np.concatenate((np.zeros(n_cal), np.ones(t)), axis=0)
-            clf.partial_fit(X_test_0_curr[-1].reshape(1, -1), np.array([class_labels[-1]]))
-            lr_probs = clf.predict_proba(X_test_0)
-            W_i[t-1] = lr_probs[:,1] / lr_probs[:,0] ## p_test / p_train
-
-    return W_i
-
-
-
 
 
 def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0, cs_type='signed',\
@@ -192,8 +54,6 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
         y_test_0 = np.concatenate((y_cal, dataset0_test_0[y_name].to_numpy()), axis=0)
         y_pred_0 = model.predict(X_test_0)
         
-        
-        
         #### Computing likelihood ratios (estimated or oracle)
         
         ## Online logistic regression for weight estimation
@@ -213,8 +73,6 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             W_i = get_w(x_pca=None, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
             W.append(W_i)
            
-            
-        
         # Evaluate using the calibration set + test set 1 (Scenario 1)
         if (dataset1 is not None):
             X_test_1 = np.concatenate((X_cal, dataset1.drop(y_name, axis=1)), axis=0)
@@ -255,160 +113,6 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
     return cs_0, cs_1, W, n_cals
 
 
-def calculate_p_values(conformity_scores):
-    """
-    Calculate the conformal p-values from conformity scores.
-    """
-    
-    n = len(conformity_scores)
-    p_values = np.array([(np.sum(conformity_scores[:i] < conformity_scores[i]) + 
-                         np.random.uniform() * np.sum(conformity_scores[:i] == conformity_scores[i])) / (i + 1)
-                         for i in range(n)])
-    return p_values
-
-
-## Drew added
-## Note: This is for calculating the weighted p-values once the normalized weights have already been calculated
-def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_compute='fixed_cal'):
-    """
-    Calculate the weighted conformal p-values from conformity scores and given normalized weights 
-    (i.e., enforce np.sum(normalized_weights) = 1).
-    
-    W_i : List of likelihood ratio weight est. arrays, each t-th array is length (n_cal+t)
-    """
-    init_phase = 100
-    wp_values = np.zeros(len(conformity_scores))
-    
-    
-    ## p-values for original calibration set calculated as before
-    wp_values[0:(n_cal+init_phase)] = calculate_p_values(conformity_scores[0:(n_cal+init_phase)]) 
-        
-    if (weights_to_compute == 'fixed_cal'):
-
-        
-        T = len(conformity_scores) - n_cal ## Number of total test observations
-        idx_include = np.concatenate((np.repeat(True, n_cal), np.repeat(False, T)), axis=0) ## indicies to include
-        
-        ## Note: in loop here, t_ := t-1 for zero-indexing
-        for t_ in range(0, T):
-            
-            ## idx_include implements indices for 'fixed cal' ie, comparing to [0:n_cal] \cup n_cal + t_ 
-            idx_include[n_cal+t_] = True ## Move to curr test point
-            if (t_ > 0):
-                idx_include[n_cal+t_-1] = False ## Exclude most recent test point again (except at start, is a cal point)
-            
-            ## Subset conformity scores and weights based on idx_include
-            conformity_scores_t = conformity_scores[idx_include]
-            W_i_t = W_i[t_][idx_include]
-            
-            ## Normalize weights on subset of weights
-            normalized_weights_t = W_i_t / np.sum(W_i_t)
-            
-            ## Calculate weighted p-values
-            wp_values[n_cal+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
-                            np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
-            
-
-    
-    elif (weights_to_compute in ['one_step_oracle', 'one_step_est']):
-        
-        T = len(conformity_scores) - n_cal ## Number of total test observations
-        
-        ## Note: in loop here, t_ := t-1 for zero-indexing
-        for t_ in range(init_phase, T):
-            
-            ## Subset conformity scores and weights based on idx_include
-            conformity_scores_t = conformity_scores[:(n_cal+t_+1)]
-            
-            if (weights_to_compute == 'one_step_est'):
-                W_i_t = W_i[t_][:(n_cal+t_+1)]
-            else:
-                W_i_t = W_i[:(n_cal+t_+1)]
-            
-            ## Normalize weights on subset of weights
-            normalized_weights_t = W_i_t / np.sum(W_i_t)
-            
-                        
-            ## Calculate weighted p-values
-            wp_values[n_cal+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
-                            np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
-           
-    
-    
-    else:
-        raise Exception("Note implemented")
-        
-    return wp_values
-
-
-
-
-def ville_procedure(p_values, threshold=100, verbose=False):
-    """
-    Implements the Ville procedure. Raises an alarm when the martingale exceeds the threshold.
-    """
-    martingale = 1.0  # Start with initial capital of 1
-    for i, p in enumerate(p_values):
-        # This implies that the martingale grows if the p-value is small (indicating that the observation is unlikely under the null hypothesis)
-        # and shrinks if the p-value is large.
-        martingale *= (1 / p)
-        if martingale >= threshold and verbose:
-            print(f"Alarm raised at observation {i + 1} with martingale value = {martingale}")
-            # break
-    return martingale
-
-def cusum_procedure(S, alpha, verbose=False):
-    """
-    Implements the CUSUM statistic.
-    """
-    gamma = np.zeros(len(S))
-    threshold = np.percentile(S, 100 * alpha)
-    for n in range(1, len(S)):
-        gamma[n] = max(S[n] / S[i] for i in range(n))
-        if gamma[n] >= threshold and verbose:
-            print(f"Alarm raised at observation {n} with gamma={gamma[n]}")
-            # return True, gamma
-    return False, gamma
-
-def shiryaev_roberts_procedure(S, c, verbose=False):
-    """
-    Implements the Shiryaev-Roberts statistic.
-    """
-    sigma = np.zeros(len(S))
-    for n in range(1, len(S)):
-        sigma[n] = sum(S[n] / S[i] for i in range(n))
-        if sigma[n] >= c and verbose:
-            print(f"Alarm raised at observation {n} with sigma={sigma[n]}")
-            # return True, sigma
-    return False, sigma
-
-def simple_jumper_martingale(p_values, J=0.01, threshold=100, verbose=False):
-    """
-    Implements the Simple Jumper martingale betting strategy.
-    """
-    C_minus1, C_0, C_1 = 1/3, 1/3, 1/3
-    C = 1
-    martingale_values = []
-
-    for i, p in enumerate(p_values):
-        C_minus1 = (1 - J) * C_minus1 + (J / 3) * C
-        C_0 = (1 - J) * C_0 + (J / 3) * C
-        C_1 = (1 - J) * C_1 + (J / 3) * C
-
-        C_minus1 *= (1 + (p - 0.5) * -1)
-        C_0 *= (1 + (p - 0.5) * 0)
-        C_1 *= (1 + (p - 0.5) * 1)
-
-        C = C_minus1 + C_0 + C_1
-        martingale_values.append(C)
-
-        if C >= threshold and verbose:
-            print(f"Alarm raised at observation {i} with martingale value={C}")
-            # return True, np.array(martingale_values)
-    
-    return False, np.array(martingale_values)
-
-
 def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, n_cal, verbose=False, weights_to_compute='fixed_cal'):
     p_values = calculate_p_values(conformity_score)
     
@@ -432,7 +136,6 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
         retrain_s, sigma = cusum_procedure(martingale_value, cu_confidence, verbose)
     
     return retrain_m, retrain_s, martingale_value, sigma
-
 
 
 def training_function(dataset0, dataset0_name, dataset1=None, training_schedule='variable', \
@@ -481,6 +184,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         fold_martingales_1.append(martingale_value_1)
         sigmas_1.append(sigma_1)
     
+    ### Don't need this part for plotting purposes ###
     # Decide to retrain based on two out of three martingales exceeding the threshold
     # if retrain_m_count_0 >= 2 or retrain_s_count_0 >= 2:
     #     retrain_decision_0 = True
@@ -501,6 +205,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     #     print("Retraining the model for red wine...")
     # else:
     #     print("No retraining needed for red wine.")
+    ### Don't need this part for plotting purposes ###
         
     min_len = np.min([len(sigmas_0[i]) for i in range(0, len(sigmas_0))])
     
@@ -680,4 +385,4 @@ if __name__ == "__main__":
         cs_type=cs_type,
         setting=setting
     )
-    print('Program done!\n')
+    print('\nProgram done!')
