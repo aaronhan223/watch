@@ -1,9 +1,9 @@
 #!/bin/bash
 
 python -W ignore main.py \
-    --dataset0 airfoil \
+    --dataset0 wave \
     --muh_fun_name RF \
-    --d0_shift_type label \
+    --d0_shift_type noise \
     --bias 0.0 \
     --plot_errors True \
     --n_seeds 1 \

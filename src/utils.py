@@ -3,6 +3,7 @@ from sklearn import decomposition
 from sklearn.model_selection import train_test_split, KFold, cross_val_score
 import pandas as pd
 import os
+import pdb
 
 
 def get_white_wine_data():
@@ -19,6 +20,38 @@ def get_airfoil_data():
     airfoil.iloc[:,0] = np.log(airfoil.iloc[:,0])
     airfoil.iloc[:,4] = np.log(airfoil.iloc[:,4])
     return airfoil
+
+def get_communities_data():
+    column_names = []
+    with open(os.getcwd() + '/../datasets/communities/communities.names', 'r') as file:
+        for line in file:
+            if line.startswith('@attribute'):
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    column_name = parts[1]
+                    column_names.append(column_name)
+    df = pd.read_csv(os.getcwd() + '/../datasets/communities/communities.data', header=None, names=column_names, na_values='?')
+    non_predictive_cols = [
+        'state', 'county', 'community', 'communityname', 'fold'
+    ]
+    df = df.drop(columns=non_predictive_cols)
+    df = df.dropna(axis=1)
+    # Ensure all columns are numeric
+    communities_data = df.apply(pd.to_numeric)
+    print("\nShape of the communities_data after preprocessing:", communities_data.shape)
+    return communities_data
+
+def get_superconduct_data():
+    superconduct_data = pd.read_csv(os.getcwd() + '/../datasets/superconduct/train.csv')
+    return superconduct_data
+
+def get_wave_data():
+    wave_data = pd.read_csv(
+        os.getcwd() + '/../datasets/wave/WECs_DataSet/Sydney_Data.csv', 
+        names=['X1', 'X2', 'X3', 'X4', 'X5', 'X6', 'X7', 'X8', 'X9', 'X10', 'X11', 'X12', 'X13', 'X14', 'X15', 'X16', 'Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7', 'Y8', 'Y9', 'Y10', 'Y11', 'Y12', 'Y13', 'Y14', 'Y15', 'Y16', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'P10', 'P11', 'P12', 'P13', 'P14', 'P15', 'P16', 'Power_Output']
+    )
+    wave_data = wave_data.dropna()
+    return wave_data
 
 
 def get_w(x_pca, x, dataset, bias):
@@ -148,6 +181,21 @@ def split_and_shift_dataset0(
         elif 'airfoil' in dataset0_name:
             velocity_threshold = dataset0_test_0['Velocity'].median()
             dataset0_test_0.loc[dataset0_test_0['Velocity'] > velocity_threshold, 'Sound'] += 3
+        elif 'communities' in dataset0_name:
+            youth_threshold = dataset0_test_0['agePct12t29'].median()
+            # Increase ViolentCrimesPerPop by 20% for communities where agePct12t29 is above the median
+            dataset0_test_0.loc[dataset0_test_0['agePct12t29'] > youth_threshold, 'ViolentCrimesPerPop'] *= 1.2
+            dataset0_test_0['ViolentCrimesPerPop'] = dataset0_test_0['ViolentCrimesPerPop'].clip(lower=0, upper=1)
+        elif 'superconduct' in dataset0_name:
+            ea_threshold = dataset0_test_0['mean_ElectronAffinity'].quantile(0.75)
+            # Increase critical_temp by 10% for materials where oxygen content is above the threshold
+            dataset0_test_0.loc[dataset0_test_0['mean_ElectronAffinity'] > ea_threshold, 'critical_temp'] *= 1.1
+            dataset0_test_0['critical_temp'] = dataset0_test_0['critical_temp'].clip(lower=0, upper=200)
+        elif 'wave' in dataset0_name:
+            x_mean_threshold = dataset0_test_0['X1'].median()
+            # Increase Power_Output by 15% for instances where X_mean is above the threshold
+            dataset0_test_0.loc[dataset0_test_0['X1'] > x_mean_threshold, 'Power_Output'] *= 1.15
+            dataset0_test_0['Power_Output'] = dataset0_test_0['Power_Output'].clip(lower=0)
 
         return dataset0_train, dataset0_test_0
 
@@ -179,4 +227,43 @@ def split_and_shift_dataset0(
             max_value = data_before_shift['Suction'].max()
             dataset0_test_0['Suction'] = dataset0_test_0['Suction'].clip(lower=min_value, upper=max_value)
         
+        elif 'communities' in dataset0_name:
+            crime_median = dataset0_test_0['ViolentCrimesPerPop'].median()
+
+            # Add noise to 'PctWorkMom' (percentage of moms in workforce)
+            dataset0_test_0['PctWorkMom'] += np.where(
+                dataset0_test_0['ViolentCrimesPerPop'] >= crime_median,
+                # Add positive noise for higher crime rates
+                np.random.normal(loc=1.0, scale=0.5, size=len(dataset0_test_0)),
+                # Subtract noise for lower crime rates
+                np.random.normal(loc=-1.0, scale=0.5, size=len(dataset0_test_0))
+            )
+
+            # Ensure 'PctWorkMom' remains within valid range (e.g., 0 to 100)
+            dataset0_test_0['PctWorkMom'] = dataset0_test_0['PctWorkMom'].clip(lower=0, upper=100)
+
+        elif 'superconduct' in dataset0_name:
+            temp_median = dataset0_test_0['critical_temp'].median()
+            # Add noise to 'mean_atomic_mass' based on 'critical_temp'
+            dataset0_test_0['mean_atomic_mass'] += np.where(
+                dataset0_test_0['critical_temp'] >= temp_median,
+                # Add positive noise for higher critical temperatures
+                np.random.normal(loc=5.0, scale=2.0, size=len(dataset0_test_0)),
+                # Subtract noise for lower critical temperatures
+                np.random.normal(loc=-5.0, scale=2.0, size=len(dataset0_test_0))
+            )
+            dataset0_test_0['mean_atomic_mass'] = dataset0_test_0['mean_atomic_mass'].clip(lower=0)
+
+        elif 'wave' in dataset0_name:
+            power_median = dataset0_test_0['Power_Output'].median()
+            # Add noise to 'Y_mean' based on 'Power_Output'
+            dataset0_test_0['Y1'] += np.where(
+                dataset0_test_0['Power_Output'] >= power_median,
+                # Add positive noise for higher Power_Output
+                np.random.normal(loc=0.5, scale=0.2, size=len(dataset0_test_0)),
+                # Subtract noise for lower Power_Output
+                np.random.normal(loc=-0.5, scale=0.2, size=len(dataset0_test_0))
+            )
+            dataset0_test_0['Y1'] = dataset0_test_0['Y1'].clip(lower=data_before_shift['Y1'].min(), upper=data_before_shift['Y1'].max())
+
         return dataset0_train, dataset0_test_0

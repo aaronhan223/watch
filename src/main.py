@@ -135,6 +135,7 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
     else:
         retrain_s, sigma = cusum_procedure(martingale_value, cu_confidence, verbose)
     
+    # TODO: insert function here for ave run length
     return retrain_m, retrain_s, martingale_value, sigma
 
 
