@@ -1,6 +1,6 @@
 import numpy as np
 from sklearn.linear_model import SGDClassifier
-
+import pdb
 
 def online_lik_ratio_estimates(X_test_0, n_cal, init_phase = 50):
     
@@ -44,7 +44,7 @@ def calculate_p_values(conformity_scores):
 
 
 ## Note: This is for calculating the weighted p-values once the normalized weights have already been calculated
-def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_compute='fixed_cal'):
+def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_compute='fixed_cal', depth=1):
     """
     Calculate the weighted conformal p-values from conformity scores and given normalized weights 
     (i.e., enforce np.sum(normalized_weights) = 1).
@@ -58,9 +58,13 @@ def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_comput
     ## p-values for original calibration set calculated as before
     wp_values[0:(n_cal+init_phase)] = calculate_p_values(conformity_scores[0:(n_cal+init_phase)]) 
         
-    if (weights_to_compute == 'fixed_cal'):
+    if weights_to_compute in ['fixed_cal', 'sliding_window']:
 
-        
+        if weights_to_compute == 'fixed_cal':
+            assert depth == 1, "Estimation depth must be 1."
+        elif weights_to_compute == 'sliding_window':
+            assert depth > 1, "Estimation depth must be greater than 1."
+
         T = len(conformity_scores) - n_cal ## Number of total test observations
         idx_include = np.concatenate((np.repeat(True, n_cal), np.repeat(False, T)), axis=0) ## indicies to include
         
@@ -69,8 +73,8 @@ def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_comput
             
             ## idx_include implements indices for 'fixed cal' ie, comparing to [0:n_cal] \cup n_cal + t_ 
             idx_include[n_cal+t_] = True ## Move to curr test point
-            if (t_ > 0):
-                idx_include[n_cal+t_-1] = False ## Exclude most recent test point again (except at start, is a cal point)
+            if (t_ > depth - 1):
+                idx_include[n_cal+t_-depth] = False ## Exclude most recent "depth" number of test point again (except at start, is a cal point)
             
             ## Subset conformity scores and weights based on idx_include
             conformity_scores_t = conformity_scores[idx_include]
@@ -82,9 +86,7 @@ def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_comput
             ## Calculate weighted p-values
             wp_values[n_cal+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
                             np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
-            
 
-    
     elif (weights_to_compute in ['one_step_oracle', 'one_step_est']):
         
         T = len(conformity_scores) - n_cal ## Number of total test observations

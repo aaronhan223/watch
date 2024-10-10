@@ -113,20 +113,20 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
     return cs_0, cs_1, W, n_cals
 
 
-def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, n_cal, verbose=False, weights_to_compute='fixed_cal'):
+def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, n_cal, verbose=False, weights_to_compute='fixed_cal', depth=1):
     p_values = calculate_p_values(conformity_score)
     
     
     if (weights_to_compute == 'fixed_cal'):
-        p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute)
+        p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute, depth)
     
     elif (weights_to_compute == 'one_step_est'):
         ## One step weights, ie depth d=1 weights
-        p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute)
+        p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute, depth)
         
     elif (weights_to_compute == 'one_step_oracle'):
         ## One step weights, ie depth d=1 weights
-        p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute)
+        p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute, depth)
     
     retrain_m, martingale_value = simple_jumper_martingale(p_values, verbose=verbose)
 
@@ -142,7 +142,7 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
 def training_function(dataset0, dataset0_name, dataset1=None, training_schedule='variable', \
                       sr_threshold=1e6, cu_confidence=0.99, muh_fun_name='RF', test0_size=1599/4898, \
                       dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed', \
-                        label_uptick=1, verbose=False, noise_mu=0, noise_sigma=0, weights_to_compute='fixed_cal'):
+                    label_uptick=1, verbose=False, noise_mu=0, noise_sigma=0, weights_to_compute='fixed_cal', depth=1):
     
     
     
@@ -163,9 +163,9 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     
     for i, score_0 in enumerate(cs_0):
         if (weights_to_compute in ['fixed_cal', 'one_step_est', 'one_step_oracle']):
-            m_0, s_0, martingale_value_0, sigma_0 = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], verbose, weights_to_compute)
+            m_0, s_0, martingale_value_0, sigma_0 = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], verbose, weights_to_compute, depth)
         else:
-            m_0, s_0, martingale_value_0, sigma_0 = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, None, None, verbose, weights_to_compute)
+            m_0, s_0, martingale_value_0, sigma_0 = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, None, None, verbose, weights_to_compute, depth)
 
         if m_0:
             retrain_m_count_0 += 1
@@ -176,7 +176,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         
         
     for i, score_1 in enumerate(cs_1):
-        m_1, s_1, martingale_value_1, sigma_1 = retrain_count(score_1, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], verbose, weights_to_compute)
+        m_1, s_1, martingale_value_1, sigma_1 = retrain_count(score_1, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], verbose, weights_to_compute, depth)
 
         if m_1:
             retrain_m_count_1 += 1
@@ -234,6 +234,7 @@ if __name__ == "__main__":
                         help='value in (0,1); Proportion of dataset0 used for testing')
     parser.add_argument('--verbose', action='store_true', help="Whether to print out alarm raising info.")
     parser.add_argument('--d0_shift_type', type=str, default='none', help='Shift type to induce in dataset0.')
+    parser.add_argument('--depth', type=int, default=1, help="Estimation depth for sliding window approach.")
     parser.add_argument('--bias', type=float, default=0.0, help='Scalar bias magnitude parameter lmbda for exponential tilting covariate shift.')
     parser.add_argument('--plot_errors', type=bool, default=False, help='Whether to also plot absolute errors.')
     parser.add_argument('--schedule', type=str, default='variable', help='Training schedule: variable or fixed.')
@@ -292,7 +293,8 @@ if __name__ == "__main__":
             verbose=args.verbose,
             noise_mu=args.noise_mu,
             noise_sigma=args.noise_sigma,
-            weights_to_compute=weights_to_compute
+            weights_to_compute=weights_to_compute,
+            depth=args.depth
         )
         paths_all = pd.concat([paths_all, paths_curr], ignore_index=True)
         
