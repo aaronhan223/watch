@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 from plot import plot_martingale_paths
-from sklearn.model_selection import train_test_split, KFold, cross_val_score
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
@@ -10,8 +9,9 @@ from sklearn.metrics import mean_absolute_error
 from tqdm import tqdm
 import pdb
 
-## Drew added
 from utils import *
+from martingales import *
+from p_values import *
 import argparse
 import os
 from sklearn.linear_model import LinearRegression
@@ -46,45 +46,7 @@ def get_airfoil_pca_data():
     return get_airfoil_data()
 
 
-# def get_1dim_synthetic_data(size=5000):
-#     X = np.random.uniform(low=1, high=10, size=size)
-#     epsilon1 = np.random.normal(size=size)
-#     epsilon2 = np.random.normal(size=size)
-#     U = np.random.uniform(size=size)
-#     indicator_U = U < 0.01
-#     Y = np.zeros(size)
-#     for i in range(0, size):
-#         Y[i] = np.random.normal(np.sin(X[i]), np.cos(5*X[i])+5) 
-#     return pd.DataFrame(np.c_[X, Y])
 
-# def get_1dim_synthetic_data(size=5000):
-#     high=10
-#     X = np.random.uniform(low=1, high=high, size=size)
-#     epsilon1 = np.random.normal(size=size)
-#     epsilon2 = np.random.normal(size=size)
-#     U = np.random.uniform(size=size)
-#     indicator_U = U < 0.1
-# #     indicator_X = X < 1
-#     Y = np.zeros(size)
-#     for i in range(0, size):
-# #         Y[i] = np.random.normal(2*X[i]*(np.sin(X[i])+1), X[i]+0.5) + (indicator_X[i] * indicator_U[i]) * 25
-# #         Y[i] = np.random.normal(2*X[i]*(np.sin(X[i])+1), X[i]+0.5) + indicator_U[i] * 10
-#         Y[i] = np.random.normal(2*X[i]*(np.sin(X[i])+1), X[i]+0.5)
-# #         Y[i] = np.random.normal(X[i]*(np.sin(X[i])+1), 2*np.sin(X[i]/3-np.pi/2)+2.5)
-# #         Y[i] = np.random.normal(X[i]*(np.sin(X[i])+1), 2*np.sin(X[i]/2-9/8*np.pi)+2.5)
-# #         Y[i] = np.random.normal(X[i]*(np.sin(X[i])+1), 2*np.sin(X[i]/2+np.pi/2)+2.5)
-# #         Y[i] = np.random.normal(X[i]*(3*np.sin(X[i]**2 / 10)+1), 2*np.sin(X[i]/2+np.pi/2)+2.5)
-#     return pd.DataFrame(np.c_[X, Y])
-
-
-# def get_1dim_linear_synthetic_data(size=5000):
-#     high=2*np.pi
-#     X = np.random.uniform(low=0, high=high, size=size)
-#     Y = np.zeros(size)
-#     for i in range(0, size):
-#         Y[i] = np.random.normal(2, X[i]+0.5)
-
-#     return pd.DataFrame(np.c_[X, Y])
 
 def get_1dim_synthetic_data(size=10000):
     high=2*np.pi
@@ -181,70 +143,7 @@ def split_into_folds(dataset0_train, seed=0):
     return X, y, folds
 
 
-def online_lik_ratio_estimates(X_test_0, n_cal, init_phase = 50):
-    
-    T = len(X_test_0) - n_cal ## Number of test points (points after true changepoint)
-    
-    W_i = np.zeros((T, (n_cal + T)))
-    
-    ## Initialize density ratio estimation with 'init_phase' number of first test points
-    X_test_0_curr = X_test_0[0:(n_cal+init_phase)] 
-    class_labels = np.concatenate((np.zeros(n_cal), np.ones(init_phase)), axis=0)
-    clf = SGDClassifier(random_state=0, loss='log_loss', alpha=0.1, max_iter=1000)
-    clf.fit(X_test_0_curr, class_labels)
 
-    for t in range(1, T+1):
-        
-        if (t <= init_phase):
-            ## In the initial phase, assigning uniform weight to all points
-            W_i[t-1] = np.ones(n_cal+T)
-
-        else:
-            ## 
-            X_test_0_curr = X_test_0[0:(n_cal+t)] ## X_{1:(n+t)} cal and test points
-            class_labels = np.concatenate((np.zeros(n_cal), np.ones(t)), axis=0)
-            clf.partial_fit(X_test_0_curr[-1].reshape(1, -1), np.array([class_labels[-1]]))
-            lr_probs = clf.predict_proba(X_test_0)
-            W_i[t-1] = lr_probs[:,1] / lr_probs[:,0] ## p_test / p_train
-
-    return W_i
-
-
-
-
-
-def subsample_batch_weights(w_array_all, n_cal, max_num_samples=20):
-    ## w_array_all: length n_cal + T
-    ## out: W, list with weight arrays
-    
-    W_list = []
-    for t in range(1, len(w_array_all) - n_cal + 1):
-#         print(t)
-        W_list.append(subsample_batch_weights_helper_t(w_array_all[:(n_cal + t)], t, max_num_samples=max_num_samples))
-    return W_list
-
-
-def subsample_batch_weights_helper_t(w_array, t, max_num_samples=20):
-    ## w_array: length n_cal + t
-    
-#     max_num_samples = np.min([math.comb(len(w_array), t), max_num_samples])
-    
-    idx_not_i = np.repeat(False, len(w_array))
-    w_sums = np.zeros(len(w_array))
-        
-    for i in range(0, len(w_array)):
-#         print(i)
-        idx_not_i[i] = True
-        idx_not_i[i-1] = False
-        w_array_not_i = w_array[idx_not_i]
-        
-        ## Subsampling
-        s = 0
-        while (s < max_num_samples):
-            w_sums[i] += np.prod(np.random.choice(w_array_not_i, size=t))
-            s += 1
-    
-    return w_array * w_sums
 
 
 
@@ -284,8 +183,6 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
         y_test_0 = np.concatenate((y_cal, dataset0_test_0[y_name].to_numpy()), axis=0)
         y_pred_0 = model.predict(X_test_0)
         
-        
-        
         #### Computing likelihood ratios (estimated or oracle)
         
         ## Online logistic regression for weight estimation
@@ -317,10 +214,7 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             
             W.append(W_i)
            
-            
-           
-            
-        
+
         # Evaluate using the calibration set + test set 1 (Scenario 1)
         if (dataset1 is not None):
             X_test_1 = np.concatenate((X_cal, dataset1.drop(y_name, axis=1)), axis=0)
@@ -361,217 +255,14 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
     return cs_0, cs_1, W, n_cals
 
 
-def calculate_p_values(conformity_scores):
-    """
-    Calculate the conformal p-values from conformity scores.
-    """
-    
-    n = len(conformity_scores)
-    p_values = np.array([(np.sum(conformity_scores[:i] < conformity_scores[i]) + 
-                         np.random.uniform() * np.sum(conformity_scores[:i] == conformity_scores[i])) / (i + 1)
-                         for i in range(n)])
-    return p_values
 
 
-## Drew added
-## Note: This is for calculating the weighted p-values once the normalized weights have already been calculated
-def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_compute='fixed_cal'):
-    """
-    Calculate the weighted conformal p-values from conformity scores and given normalized weights 
-    (i.e., enforce np.sum(normalized_weights) = 1).
-    
-    W_i : List of likelihood ratio weight est. arrays, each t-th array is length (n_cal+t)
-    """
-    init_phase = 100
-    wp_values = np.zeros(len(conformity_scores))
-    
-    
-    ## p-values for original calibration set calculated as before
-    wp_values[0:(n_cal+init_phase)] = calculate_p_values(conformity_scores[0:(n_cal+init_phase)]) 
-        
-    if (weights_to_compute in ['fixed_cal', 'fixed_cal_oracle']):
-        
-        
-        T = len(conformity_scores) - n_cal ## Number of total test observations
-        idx_include = np.concatenate((np.repeat(True, n_cal), np.repeat(False, T)), axis=0) ## indicies to include
-        
-        ## Note: in loop here, t_ := t-1 for zero-indexing
-        for t_ in range(0, T):
-            
-            ## idx_include implements indices for 'fixed cal' ie, comparing to [0:n_cal] \cup n_cal + t_ 
-            idx_include[n_cal+t_] = True ## Move to curr test point
-            if (t_ > 0):
-                idx_include[n_cal+t_-1] = False ## Exclude most recent test point again (except at start, is a cal point)
-            
-            ## Subset conformity scores and weights based on idx_include
-            conformity_scores_t = conformity_scores[idx_include]
-            if (weights_to_compute == 'fixed_cal'):
-                W_i_t = W_i[t_][idx_include]
-            else:
-#                 print("computing oracle weighted p vals")
-                W_i_t = W_i[idx_include]
-            
-            ## Normalize weights on subset of weights
-            normalized_weights_t = W_i_t / np.sum(W_i_t)
-            
-            ## Calculate weighted p-values
-            wp_values[n_cal+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
-                            np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
-            
-
-    
-    elif (weights_to_compute in ['one_step_oracle', 'one_step_est', 'batch_oracle', 'multistep_oracle']):
-        
-        print("computing multistep weights")
-        T = len(conformity_scores) - n_cal ## Number of total test observations
-        
-        ## Note: in loop here, t_ := t-1 for zero-indexing
-        for t_ in range(0, T):
-            
-            ## Subset conformity scores and weights based on idx_include
-#             print("len conformity_scores : ", len(conformity_scores))
-            conformity_scores_t = conformity_scores[:(n_cal+t_+1)]
-#             print("conformity_scores_t len :", len(conformity_scores_t))
-#             print("n_cal+t_ ", n_cal+t_)
-            
-            if (weights_to_compute in ['one_step_est', 'batch_oracle']):
-                W_i_t = W_i[t_][:(n_cal+t_+1)]
-                
-            elif (weights_to_compute == 'one_step_oracle'):
-                W_i_t = W_i[:(n_cal+t_+1)]
-                
-            elif (weights_to_compute == 'multistep_oracle'):
-#                 print("computing multistep weights")
-#                 print("W_i shape : ", np.shape(W_i))
-#                 print("n_cal+t_ ", n_cal+t_)
-#                 print("W_i[-(t_+2):] shape ", np.shape(W_i[-(t_+2):]))
-                w_mat = np.matrix(W_i[-(t_+2):,:(n_cal+t_+1)])
-#                 print("w_mat shape : ", np.shape(w_mat))
-#                 print("one-step weights : ", w_mat[0] / np.sum(w_mat[0]))
-                
-                W_i_t = compute_w_ptest_split_active_replacement(w_mat, depth_max=2)
-#                 print("two-step weights : ", W_i_t / np.sum(W_i_t))
-            
-            ## Normalize weights on subset of weights
-            normalized_weights_t = W_i_t / np.sum(W_i_t)
-            
-#             print("conformity_scores_t len :", len(conformity_scores_t))
-#             print("normalized_weights_t len :", len(normalized_weights_t))
-                        
-            ## Calculate weighted p-values
-            wp_values[n_cal+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
-                            np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
-           
-                
-    
-    else:
-        raise Exception("Note implemented")
-        
-    return wp_values
-
-
-
-
-def ville_procedure(p_values, threshold=100, verbose=False):
-    """
-    Implements the Ville procedure. Raises an alarm when the martingale exceeds the threshold.
-    """
-    martingale = 1.0  # Start with initial capital of 1
-    for i, p in enumerate(p_values):
-        # This implies that the martingale grows if the p-value is small (indicating that the observation is unlikely under the null hypothesis)
-        # and shrinks if the p-value is large.
-        martingale *= (1 / p)
-        if martingale >= threshold and verbose:
-            print(f"Alarm raised at observation {i + 1} with martingale value = {martingale}")
-            # break
-    return martingale
-
-def cusum_procedure(S, alpha, verbose=False):
-    """
-    Implements the CUSUM statistic.
-    """
-    gamma = np.zeros(len(S))
-    threshold = np.percentile(S, 100 * alpha)
-    for n in range(1, len(S)):
-        gamma[n] = max(S[n] / S[i] for i in range(n))
-        if gamma[n] >= threshold and verbose:
-            print(f"Alarm raised at observation {n} with gamma={gamma[n]}")
-            # return True, gamma
-    return False, gamma
-
-def shiryaev_roberts_procedure(S, c, verbose=False):
-    """
-    Implements the Shiryaev-Roberts statistic.
-    """
-    sigma = np.zeros(len(S))
-    for n in range(1, len(S)):
-        sigma[n] = sum(S[n] / S[i] for i in range(n))
-        if sigma[n] >= c and verbose:
-            print(f"Alarm raised at observation {n} with sigma={sigma[n]}")
-            # return True, sigma
-    return False, sigma
-
-def simple_jumper_martingale(p_values, J=0.01, threshold=100, verbose=False):
-    """
-    Implements the Simple Jumper martingale betting strategy.
-    """
-    C_minus1, C_0, C_1 = 1/3, 1/3, 1/3
-    C = 1
-    martingale_values = []
-
-    for i, p in enumerate(p_values):
-        C_minus1 = (1 - J) * C_minus1 + (J / 3) * C
-        C_0 = (1 - J) * C_0 + (J / 3) * C
-        C_1 = (1 - J) * C_1 + (J / 3) * C
-
-        C_minus1 *= (1 + (p - 0.5) * -1)
-        C_0 *= (1 + (p - 0.5) * 0)
-        C_1 *= (1 + (p - 0.5) * 1)
-
-        C = C_minus1 + C_0 + C_1
-        martingale_values.append(C)
-
-        if C >= threshold and verbose:
-            print(f"Alarm raised at observation {i} with martingale value={C}")
-            # return True, np.array(martingale_values)
-    
-    return False, np.array(martingale_values)
-
-
-def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, n_cal, verbose=False, weights_to_compute='fixed_cal'):
+def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, n_cal, verbose=False, weights_to_compute='fixed_cal', depth=1):
     p_values = calculate_p_values(conformity_score)
     
     
     if (weights_to_compute in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle']):
         p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute)
-    
-#     elif (weights_to_compute == 'one_step_est'):
-#         ## One step weights, ie depth d=1 weights
-#         p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute)
-        
-#     elif (weights_to_compute == 'one_step_oracle'):
-#         ## One step weights, ie depth d=1 weights
-#         p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute)
-        
-#     elif (weights_to_compute == 'batch_oracle'):
-#         p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute)
-    
-    
-#     print("len(p_values) ", len(p_values))
-#     print("n_cal ", n_cal)
-
-#     print("p_values[:n_cal]   : ", p_values[0:n_cal])
-#     print("average cal p-val  : ", np.mean(p_values[0:n_cal]))
-    
-# #     print("p_values[n_cal:]   : ", p_values[n_cal:])
-#     print("average test p-val : ", np.mean(p_values[n_cal:]))
-#     fig, ax = plt.subplots(1, 2)
-#     ax[0].hist(p_values[0:n_cal]) #row=0, col=0
-#     ax[0].set_title('cal p-values')
-#     ax[1].hist(p_values[n_cal:]) #row=1, col=0
-#     ax[1].set_title('test p-values')
-#     fig.savefig(os.getcwd() + '/../figs/p_vals_hist.pdf')
-#     print("\n")
     
     retrain_m, martingale_value = simple_jumper_martingale(p_values, verbose=verbose)
 
@@ -587,7 +278,6 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
     else:
         retrain_s, sigma = cusum_procedure(martingale_value, cu_confidence, verbose)
         
-    
     return retrain_m, retrain_s, martingale_value, sigma, p_values
 
 
@@ -595,7 +285,7 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
 def training_function(dataset0, dataset0_name, dataset1=None, training_schedule='variable', \
                       sr_threshold=1e6, cu_confidence=0.99, muh_fun_name='RF', test0_size=1599/4898, \
                       dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed', \
-                        label_uptick=1, verbose=False, noise_mu=0, noise_sigma=0, weights_to_compute='fixed_cal'):
+                    label_uptick=1, verbose=False, noise_mu=0, noise_sigma=0, weights_to_compute='fixed_cal', depth=1):
     
     
     
@@ -606,12 +296,14 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                                                                 noise_sigma=noise_sigma)
     X, y, folds = split_into_folds(dataset0_train, seed=seed)
     
-    ## Add simulated measurement noise
+    ## Add simulated measurement noise with OLS
 #     ols = LinearRegression(fit_intercept=False)  # featurization from walsh_hadamard_from_seqs has intercept
 #     ols.fit(X, y)
 #     y_pred = ols.predict(X)
 #     resid = np.abs(y - y_pred)
 #     y = y + np.random.normal(0, resid)
+
+    ## Add simulated measurement noise with Kernel Ridge
 #     kernel_ridge = KernelRidge(alpha=0.1)  # featurization from walsh_hadamard_from_seqs has intercept
 #     kernel_ridge.fit(X, y)
 #     y_pred = kernel_ridge.predict(X)
@@ -629,9 +321,10 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         
     for i, score_0 in enumerate(cs_0):
         if (weights_to_compute in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle']):
-            m_0, s_0, martingale_value_0, sigma_0, p_vals = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], verbose, weights_to_compute)
+            m_0, s_0, martingale_value_0, sigma_0, p_vals = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], verbose, weights_to_compute, depth)
         else:
-            m_0, s_0, martingale_value_0, sigma_0, p_vals = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, None, n_cals[i], verbose, weights_to_compute)
+            m_0, s_0, martingale_value_0, sigma_0, p_vals = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, None, n_cals[i], verbose, weights_to_compute, depth)
+
 
         if m_0:
             retrain_m_count_0 += 1
@@ -649,7 +342,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     
     
     for i, score_1 in enumerate(cs_1):
-        m_1, s_1, martingale_value_1, sigma_1 = retrain_count(score_1, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], verbose, weights_to_compute)
+        m_1, s_1, martingale_value_1, sigma_1 = retrain_count(score_1, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], verbose, weights_to_compute, depth)
 
         if m_1:
             retrain_m_count_1 += 1
@@ -658,6 +351,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         fold_martingales_1.append(martingale_value_1)
         sigmas_1.append(sigma_1)
     
+    ### Don't need this part for plotting purposes ###
     # Decide to retrain based on two out of three martingales exceeding the threshold
     # if retrain_m_count_0 >= 2 or retrain_s_count_0 >= 2:
     #     retrain_decision_0 = True
@@ -678,6 +372,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     #     print("Retraining the model for red wine...")
     # else:
     #     print("No retraining needed for red wine.")
+    ### Don't need this part for plotting purposes ###
         
     min_len = np.min([len(sigmas_0[i]) for i in range(0, len(sigmas_0))])
     
@@ -711,6 +406,7 @@ if __name__ == "__main__":
                         help='value in (0,1); Proportion of dataset0 used for testing')
     parser.add_argument('--verbose', action='store_true', help="Whether to print out alarm raising info.")
     parser.add_argument('--d0_shift_type', type=str, default='none', help='Shift type to induce in dataset0.')
+    parser.add_argument('--depth', type=int, default=1, help="Estimation depth for sliding window approach.")
     parser.add_argument('--bias', type=float, default=0.0, help='Scalar bias magnitude parameter lmbda for exponential tilting covariate shift.')
     parser.add_argument('--plot_errors', type=bool, default=False, help='Whether to also plot absolute errors.')
     parser.add_argument('--schedule', type=str, default='variable', help='Training schedule: variable or fixed.')
@@ -718,7 +414,7 @@ if __name__ == "__main__":
     parser.add_argument('--errs_window', type=int, default=50, help='Num observations to average for plotting errors.')
     parser.add_argument('--cs_type', type=str, default='signed', help="Nonconformity score type: 'abs' or 'signed' ")
     parser.add_argument('--weights_to_compute', type=str, default='fixed_cal', help='Type of weight computation to do.')
-    parser.add_argument('--label_shift', type=int, default=1, help="Label shift value, for wine data it is an integer for label uptick.")
+    parser.add_argument('--label_shift', type=float, default=1, help="Label shift value.")
     parser.add_argument('--noise_mu', type=float, default=0.2, help="x-dependent noise mean, wine data")
     parser.add_argument('--noise_sigma', type=float, default=0.05, help="x-dependent noise variance, wine data")
     ## python main.py dataset muh_fun_name bias
@@ -769,7 +465,8 @@ if __name__ == "__main__":
             verbose=args.verbose,
             noise_mu=args.noise_mu,
             noise_sigma=args.noise_sigma,
-            weights_to_compute=weights_to_compute
+            weights_to_compute=weights_to_compute,
+            depth=args.depth
         )
         paths_all = pd.concat([paths_all, paths_curr], ignore_index=True)
         
@@ -908,3 +605,4 @@ if __name__ == "__main__":
         coverage_0_stderr=coverage_0_stderr,
         weights_to_compute=weights_to_compute
     )
+    print('\nProgram done!')
