@@ -78,10 +78,11 @@ def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_comput
             
             ## Subset conformity scores and weights based on idx_include
             conformity_scores_t = conformity_scores[idx_include]
-            W_i_t = W_i[t_][idx_include]
             
             if (weights_to_compute == 'fixed_cal_oracle'):
                 W_i_t = W_i[idx_include]
+            else:
+                W_i_t = W_i[t_][idx_include]
             
             ## Normalize weights on subset of weights
             normalized_weights_t = W_i_t / np.sum(W_i_t)

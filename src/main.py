@@ -97,7 +97,7 @@ def split_and_shift_dataset0(
         dataset0_train_copy = dataset0_train.copy()
         
         X_train = dataset0_train_copy.iloc[:, :-1].values
-        print("np.shape(X_train) : ", np.shape(X_train))
+#         print("np.shape(X_train) : ", np.shape(X_train))
         dataset0_test_0_copy = dataset0_test_0.copy()
         X_test_0 = dataset0_test_0_copy.iloc[:, :-1].values
         

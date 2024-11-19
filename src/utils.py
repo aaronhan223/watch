@@ -226,7 +226,7 @@ def wsample(wts, n, d, frac=0.5):
             for j in proposed_indices:
                 if(len(indices) < target_num_indices):
                     indices.append(j)
-    print("unique / total indices : ", len(np.unique(indices)) / len(indices))
+#     print("unique / total indices : ", len(np.unique(indices)) / len(indices))
     
     return(indices)
 
