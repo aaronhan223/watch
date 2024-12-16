@@ -167,6 +167,12 @@ def get_w(x_pca, x, dataset, bias):
     
     elif(dataset == 'red_wine'):
         return np.exp(x[:,[0,10]] @ [-bias,bias])
+    
+    
+    elif (dataset == 'bike_sharing'):
+        x_sub = x[:,[8,11]] ## 8:temp, 11:windspeed
+        x_sub = x_sub / np.max(x[:,[8,11]]) ## normalize
+        return np.exp(x_sub @ [-bias,bias])
 
     
     ## For communities dataset use top 2 PCs as tilting vars
@@ -202,33 +208,43 @@ def get_w(x_pca, x, dataset, bias):
         return np.exp(x_red @ [-bias,bias])
     
 
+# def wsample(wts, n, d, frac=0.1):
+#     n = len(wts) ## n : length or num of weights
+# #     print("n : ", n, "d :", d)
+#     indices = [] ## indices : vector containing indices of the sampled data
+# #     print("max w ", max(wts))
+#     normalized_wts = wts/max(wts)
+# #     print("normalized weights : ", normalized_wts[0:10])
+# #     print("normalized weights dim : ", np.shape(normalized_wts))
+#     target_num_indices = int(n*frac)
+# #     print("target_num_indices : ", target_num_indices)
+# #     itr = 0 
+#     while(len(indices) < target_num_indices): ## Draw samples until have sampled ~25% of samples from D_test
+#         proposed_indices = np.where(np.random.uniform(size=n) <= normalized_wts)[0].tolist()
+# #         print("proposed_indices : ", proposed_indices)
+#         ## If (set of proposed indices that may add is less than or equal to number still needed): then add all of them
+# #         print("itr : ", itr)
+# #         itr += 1
+#         if (len(proposed_indices) <= target_num_indices - len(indices)):
+#             for j in proposed_indices:
+#                 indices.append(j)
+#         else: ## Else: Only add the proposed indices that are needed to get to 25% of D_test
+#             for j in proposed_indices:
+#                 if(len(indices) < target_num_indices):
+#                     indices.append(j)
+# #     print("unique / total indices : ", len(np.unique(indices)) / len(indices))
+    
+#     return(indices)
+
 def wsample(wts, n, d, frac=0.5):
     n = len(wts) ## n : length or num of weights
-#     print("n : ", n, "d :", d)
-    indices = [] ## indices : vector containing indices of the sampled data
-#     print("max w ", max(wts))
-    normalized_wts = wts/max(wts)
-#     print("normalized weights : ", normalized_wts[0:10])
-#     print("normalized weights dim : ", np.shape(normalized_wts))
+    indices_all = np.arange(0, n)
+    normalized_wts = wts/np.sum(wts)
     target_num_indices = int(n*frac)
-#     print("target_num_indices : ", target_num_indices)
-#     itr = 0 
-    while(len(indices) < target_num_indices): ## Draw samples until have sampled ~25% of samples from D_test
-        proposed_indices = np.where(np.random.uniform(size=n) <= normalized_wts)[0].tolist()
-#         print("proposed_indices : ", proposed_indices)
-        ## If (set of proposed indices that may add is less than or equal to number still needed): then add all of them
-#         print("itr : ", itr)
-#         itr += 1
-        if (len(proposed_indices) <= target_num_indices - len(indices)):
-            for j in proposed_indices:
-                indices.append(j)
-        else: ## Else: Only add the proposed indices that are needed to get to 25% of D_test
-            for j in proposed_indices:
-                if(len(indices) < target_num_indices):
-                    indices.append(j)
-#     print("unique / total indices : ", len(np.unique(indices)) / len(indices))
-    
-    return(indices)
+    indices = np.random.choice(indices_all, size=target_num_indices, p=normalized_wts)
+#     print(np.shape(indices))
+#     print(indices)
+    return indices
 
 
 def exponential_tilting_indices(x_pca, x, dataset, bias=1):

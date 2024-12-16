@@ -19,21 +19,39 @@ from sklearn.kernel_ridge import KernelRidge
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import SGDClassifier
+from sklearn.neighbors import NearestNeighbors
 import matplotlib.pyplot as plt
 import math
 
+
+## pip install ucimlrepo
+from ucimlrepo import fetch_ucirepo 
+
+
+
+def get_bike_sharing_data():
+    # fetch dataset 
+    bike_sharing_obj = fetch_ucirepo(id=275) 
+    
+    bike_sharing = bike_sharing_obj.data.features.iloc[:,1:]
+    bike_sharing['count'] = bike_sharing_obj.data.targets
+    return bike_sharing
+    
 
 def get_white_wine_data():
     white_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv', sep=';')
     return white_wine
 
+
 def get_white_wine_pca_data():
     white_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv', sep=';')
     return white_wine
 
+
 def get_red_wine_data():
     red_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv', sep=';')
     return red_wine
+
 
 def get_airfoil_data():
     airfoil = pd.read_csv(os.getcwd() + '/../datasets/airfoil/airfoil.txt', sep = '\t', header=None)
@@ -44,8 +62,6 @@ def get_airfoil_data():
 
 def get_airfoil_pca_data():
     return get_airfoil_data()
-
-
 
 
 def get_1dim_synthetic_data(size=10000):
@@ -59,7 +75,7 @@ def get_1dim_synthetic_data(size=10000):
 
 
 
-def get_1dim_synthetic_v2_data(size=10000):
+def get_1dim_synthetic_v2_data(size=1000):
     high=2*np.pi
     X = np.random.uniform(low=-np.pi/2, high=high, size=size)
     Y = np.zeros(size)
@@ -85,6 +101,8 @@ def split_and_shift_dataset0(
 ):
     
     dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
+    
+
 
     if (dataset0_shift_type == 'none'):
         ## No shift within dataset0    
@@ -101,11 +119,16 @@ def split_and_shift_dataset0(
         dataset0_test_0_copy = dataset0_test_0.copy()
         X_test_0 = dataset0_test_0_copy.iloc[:, :-1].values
         
-        dataset0_test_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
-#         print(dataset0_test_0_biased_idx)
-#         print("unique proportion :", len(np.unique(dataset0_test_0_biased_idx)) / len(dataset0_test_0_biased_idx))
+#         ## 20241203 using full data as pool:
+#         X_dataset0 = dataset0.iloc[:, :-1].values
         
+        dataset0_test_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
+#         dataset0_test_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_dataset0, dataset=dataset0_name, bias=cov_shift_bias)
+
         return dataset0_train, dataset0_test_0.iloc[dataset0_test_0_biased_idx]
+
+#         return dataset0_train, dataset0.iloc[dataset0_test_0_biased_idx]
+
     
     elif (dataset0_shift_type == 'label'):
         ## Label shift within dataset0
@@ -141,7 +164,6 @@ def split_into_folds(dataset0_train, seed=0):
     kf = KFold(n_splits=3, shuffle=True, random_state=seed)
     folds = list(kf.split(X, y))
     return X, y, folds
-
 
 
 
@@ -200,6 +222,8 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
 #             print("getting oracle lik ratios")
             ## Oracle one-step likelihood ratios
             ## np.shape(W_i) = (n_cal + T, )
+            X_full = np.concatenate((X_train, X_test_0), axis = 0)
+            
             W_i = get_w(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias) 
 #             print(np.mean(W_i[n_cal:]) / np.mean(W_i[:n_cal]))
 #             print(W_i)
@@ -227,6 +251,13 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             conformity_scores_0 = y_test_0 - y_pred_0
         elif (cs_type == 'abs'):
             conformity_scores_0 = np.abs(y_test_0 - y_pred_0)
+            print("conformity_scores_0 shape : ", np.shape(conformity_scores_0))
+        elif (cs_type == 'nn_dist'):
+            ## CS is nearest neighbor distance
+            nbrs = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(X_train)
+            distances, _ = nbrs.kneighbors(X_test_0)
+            conformity_scores_0 = distances.flatten()
+            print("conformity_scores_0 shape : ", np.shape(conformity_scores_0))
             
         cs_0.append(conformity_scores_0)
         
@@ -296,12 +327,12 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                                                                 noise_sigma=noise_sigma)
     X, y, folds = split_into_folds(dataset0_train, seed=seed)
     
-    ## Add simulated measurement noise with OLS
+#     ## Add simulated measurement noise with OLS
 #     ols = LinearRegression(fit_intercept=False)  # featurization from walsh_hadamard_from_seqs has intercept
 #     ols.fit(X, y)
 #     y_pred = ols.predict(X)
 #     resid = np.abs(y - y_pred)
-#     y = y + np.random.normal(0, resid)
+#     y = y + np.random.normal(0, 0.1*resid)
 
     ## Add simulated measurement noise with Kernel Ridge
 #     kernel_ridge = KernelRidge(alpha=0.1)  # featurization from walsh_hadamard_from_seqs has intercept
@@ -603,6 +634,8 @@ if __name__ == "__main__":
         setting=setting,
         coverage_0_means=coverage_0_means,
         coverage_0_stderr=coverage_0_stderr,
+        pvals_0_means=pvals_0_means,
+        pvals_0_stderr=pvals_0_stderr,
         weights_to_compute=weights_to_compute
     )
     print('\nProgram done!')

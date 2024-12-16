@@ -40,6 +40,7 @@ def shiryaev_roberts_procedure(S, c, verbose=False):
             # return True, sigma
     return False, sigma
 
+## 20241203: Changed J from 0.01 to 0.05
 def simple_jumper_martingale(p_values, J=0.01, threshold=100, verbose=False):
     """
     Implements the Simple Jumper martingale betting strategy.

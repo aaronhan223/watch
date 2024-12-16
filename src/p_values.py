@@ -88,6 +88,7 @@ def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_comput
             normalized_weights_t = W_i_t / np.sum(W_i_t)
             
             ## Calculate weighted p-values
+#             test_pt_weight = np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
             wp_values[n_cal+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
                             np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
 

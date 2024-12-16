@@ -7,7 +7,8 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_
                           title="Martingale Paths", xlabel="Observation Index", ylabel="Simple Jumper Martingale Value", \
                           martingale="martingale_paths",dataset0_shift_type='none', cov_shift_bias=0.0, plot_errors=False,\
                           n_seeds=1, cs_type='signed', setting=None, label_shift_bias=1, dataset1_name=None, noise_mu=0, \
-                          noise_sigma=0, coverage_0_means=[], coverage_0_stderr=[],weights_to_compute='none'):
+                          noise_sigma=0, coverage_0_means=[], coverage_0_stderr=[],pvals_0_means=[], \
+                          pvals_0_stderr=[], weights_to_compute='none'):
     """
     Plot martingale paths for red wine and white wine groups over time, similar to Figure 2 in the paper.
     
@@ -110,10 +111,26 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_
         
     plt.title(f'Coverage, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
     plt.ylabel(r'Coverage ($\rightarrow$)', fontsize=20)
+    plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Change Point')
     plt.savefig(os.getcwd() + f'/../figs/coverage_' + setting + '.pdf')
         
-    plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Change Point')
     
+    
+    ## Plot p-values sequence
+    plt.figure(figsize=(12, 8))
+    
+    # Plot dataset0 group with dashed lines
+    for i, p_means in enumerate(pvals_0_means):
+        plt.plot(np.arange(0, len(p_means)*errs_window, errs_window), p_means, label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i}')
+        plt.fill_between(np.arange(0, len(p_means)*errs_window, errs_window), \
+                         (p_means-np.array(pvals_0_stderr[i])).flatten(), \
+                             (p_means+np.array(pvals_0_stderr[i])).flatten(), alpha=0.5, color=f'C{i}')
+        
+    plt.title(f'Average p-values, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
+    plt.ylabel(r'Average p-values ($\rightarrow$)', fontsize=20)
+    plt.ylim([0,1])
+    plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Change Point')
+    plt.savefig(os.getcwd() + f'/../figs/pseq_' + setting + '.pdf')
     
     
     ## Plot p-values
