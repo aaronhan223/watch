@@ -102,8 +102,6 @@ def split_and_shift_dataset0(
     
     dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
     
-
-
     if (dataset0_shift_type == 'none'):
         ## No shift within dataset0    
         return dataset0_train, dataset0_test_0
