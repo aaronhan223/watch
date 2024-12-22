@@ -2,13 +2,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_0_means, cs_abs_1_means, cs_abs_0_stderr, \
-                          cs_abs_1_stderr, p_vals_cal, p_vals_test, errs_window=100, change_point_index=None, \
-                          title="Martingale Paths", xlabel="Observation Index", ylabel="Simple Jumper Martingale Value", \
-                          martingale="martingale_paths",dataset0_shift_type='none', cov_shift_bias=0.0, plot_errors=False,\
-                          n_seeds=1, cs_type='signed', setting=None, label_shift_bias=1, dataset1_name=None, noise_mu=0, \
-                          noise_sigma=0, coverage_0_means=[], coverage_0_stderr=[],pvals_0_means=[], \
-                          pvals_0_stderr=[], weights_to_compute='none'):
+def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dict, errors_0_means_dict, errors_1_means_dict,\
+                          errors_0_stderr_dict, errors_1_stderr_dict, p_vals_cal_dict, p_vals_test_dict, errs_window=100,\
+                          change_point_index=None, title="Martingale Paths", xlabel="Observation Index", \
+                          ylabel="Simple Jumper Martingale Value", martingale="martingale_paths",dataset0_shift_type='none',\
+                          cov_shift_bias=0.0, plot_errors=False,n_seeds=1, cs_type='signed', setting=None, label_shift_bias=1,\
+                          dataset1_name=None, noise_mu=0, noise_sigma=0, coverage_0_means_dict=[], coverage_0_stderr_dict=[],\
+                          pvals_0_means_dict=[], pvals_0_stderr_dict=[], methods=['none']):
     """
     Plot martingale paths for red wine and white wine groups over time, similar to Figure 2 in the paper.
     
@@ -27,12 +27,13 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_
     plt.figure(figsize=(12, 8))
     
     # Plot dataset0 group with dashed lines
-    for i, path in enumerate(dataset0_paths):
-        plt.plot(path, label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i}')
+    for m_i, method in enumerate(methods):
+        for i, path in enumerate(dataset0_paths_dict[method]):
+            plt.plot(path, label=dataset0_name + f' {method}, fold {i+1}', linestyle='-', color=f'C{m_i}')
 
-    # Plot dataset1 group with solid lines
-    for i, path in enumerate(dataset1_paths):
-        plt.plot(path, label=f'Red Wine Fold {i+1}', linestyle='-', color=f'C{i+3}')
+#         # Plot dataset1 group with solid lines
+#         for i, path in enumerate(dataset1_paths_dict[method]):
+#             plt.plot(path, label=f'Red Wine Fold {i+1}', linestyle='-', color=f'C{i+3}')
 
 
     # Add vertical line at the change point
@@ -60,21 +61,25 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_
     else:
         plt.savefig(os.getcwd() + f'/../figs/sigma_' + setting + '.pdf')
     
+    
+    
+    ## Plot absolute errors
     if (plot_errors):
         plt.figure(figsize=(12, 8))
         
-        ### Plotting errors (ie, abs(scores))
-        # Plot dataset0 group with dashed lines
-        for i, cs in enumerate(cs_abs_0_means):
-            plt.plot(np.arange(0, len(cs)*errs_window, errs_window), cs, label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i}')
-            
-            plt.fill_between(np.arange(0, len(cs)*errs_window, errs_window), (cs-np.array(cs_abs_0_stderr[i])).flatten(), \
-                             (cs+np.array(cs_abs_0_stderr[i])).flatten(), alpha=0.5, color=f'C{i}')
-            
-        # Plot dataset1 group with solid lines
-        
-        for i, cs in enumerate(cs_abs_1_means):
-            plt.plot(np.abs(cs), label=dataset1_name + f' Fold {i+1}', linestyle='-', color=f'C{i+3}')
+        for m_i, method in enumerate(methods):
+            ### Plotting errors (ie, abs(scores))
+            # Plot dataset0 group with dashed lines
+            for i, errs in enumerate(errors_0_means_dict[method]):
+                plt.plot(np.arange(0, len(errs)*errs_window, errs_window), errs, label=dataset0_name + f' {method}, fold {i+1}', linestyle='-', color=f'C{m_i}')
+
+                plt.fill_between(np.arange(0, len(errs)*errs_window, errs_window), \
+                                 (errs-np.array(errors_0_stderr_dict[method][i])).flatten(), \
+                                 (errs+np.array(errors_0_stderr_dict[method][i])).flatten(), alpha=0.5, color=f'C{m_i}')
+
+#             # Plot dataset1 group with solid lines
+#             for i, errs in enumerate(errors_1_means_dict[method]):
+#                 plt.plot(np.abs(errs), label=dataset1_name + f' {method}, fold {i+1}', linestyle='-', color=f'C{m_i+i+3}')
 
         # Add vertical line at the change point
         plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Change Point')
@@ -97,16 +102,22 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_
             plt.savefig(os.getcwd() + f'/../figs/error_' + setting + '.pdf')
             
             
+    
+    
     ## Plot coverage
     print("plotting coverage")
     plt.figure(figsize=(12, 8))
     
+    
     # Plot dataset0 group with dashed lines
-    for i, coverage in enumerate(coverage_0_means):
-        plt.plot(np.arange(0, len(coverage)*errs_window, errs_window), coverage, label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i}')
-        plt.fill_between(np.arange(0, len(coverage)*errs_window, errs_window), \
-                         (coverage-np.array(coverage_0_stderr[i])).flatten(), \
-                             (coverage+np.array(coverage_0_stderr[i])).flatten(), alpha=0.5, color=f'C{i}')
+    for m_i, method in enumerate(methods):
+
+        for i, coverage in enumerate(coverage_0_means_dict[method]):
+            plt.plot(np.arange(0, len(coverage)*errs_window, errs_window), coverage, label=dataset0_name + f' {method}, fold {i+1}', linestyle='-', color=f'C{m_i}')
+            plt.fill_between(np.arange(0, len(coverage)*errs_window, errs_window), \
+                             (coverage-np.array(coverage_0_stderr_dict[method][i])).flatten(), \
+                                 (coverage+np.array(coverage_0_stderr_dict[method][i])).flatten(), alpha=0.5,\
+                             color=f'C{m_i}')
         plt.axhline(y=0.9, color='k', linestyle='--', linewidth=3, label='Target coverage')
         
     plt.title(f'Coverage, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
@@ -116,32 +127,33 @@ def plot_martingale_paths(dataset0_paths, dataset0_name, dataset1_paths, cs_abs_
         
     
     
-    ## Plot p-values sequence
-    plt.figure(figsize=(12, 8))
+#     ## Plot p-values sequence
+#     plt.figure(figsize=(12, 8))
     
-    # Plot dataset0 group with dashed lines
-    for i, p_means in enumerate(pvals_0_means):
-        plt.plot(np.arange(0, len(p_means)*errs_window, errs_window), p_means, label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i}')
-        plt.fill_between(np.arange(0, len(p_means)*errs_window, errs_window), \
-                         (p_means-np.array(pvals_0_stderr[i])).flatten(), \
-                             (p_means+np.array(pvals_0_stderr[i])).flatten(), alpha=0.5, color=f'C{i}')
+#     # Plot dataset0 group with dashed lines
+#     for i, p_means in enumerate(pvals_0_means):
+#         plt.plot(np.arange(0, len(p_means)*errs_window, errs_window), p_means, label=dataset0_name + f' Fold {i+1}', linestyle='-', color=f'C{i}')
+#         plt.fill_between(np.arange(0, len(p_means)*errs_window, errs_window), \
+#                          (p_means-np.array(pvals_0_stderr[i])).flatten(), \
+#                              (p_means+np.array(pvals_0_stderr[i])).flatten(), alpha=0.5, color=f'C{i}')
         
-    plt.title(f'Average p-values, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
-    plt.ylabel(r'Average p-values ($\rightarrow$)', fontsize=20)
-    plt.ylim([0,1])
-    plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Change Point')
-    plt.savefig(os.getcwd() + f'/../figs/pseq_' + setting + '.pdf')
+#     plt.title(f'Average p-values, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
+#     plt.ylabel(r'Average p-values ($\rightarrow$)', fontsize=20)
+#     plt.ylim([0,1])
+#     plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Change Point')
+#     plt.savefig(os.getcwd() + f'/../figs/pseq_' + setting + '.pdf')
     
     
     ## Plot p-values
     ## Plotting p-values for debugging
     fig, ax = plt.subplots(1, 2)
+    
+    for m_i, method in enumerate(methods):
+        ax[0].hist(p_vals_cal_dict[method], label=method, color=f'C{m_i}', alpha=0.5) #row=0, col=0
+        ax[0].set_title('cal p-values')
 
-    ax[0].hist(p_vals_cal) #row=0, col=0
-    ax[0].set_title('cal p-values')
+        ax[1].hist(p_vals_test_dict[method], label=method, color=f'C{m_i}', alpha=0.5) #row=1, col=0
+        ax[1].set_title('test p-values')
     
-    ax[1].hist(p_vals_test) #row=1, col=0
-    ax[1].set_title('test p-values')
-    
-    fig.suptitle(f'p-values histogram for {weights_to_compute} weights over {n_seeds} trials')
+    fig.suptitle(f'p-values histogram for {methods} weights over {n_seeds} trials')
     fig.savefig(os.getcwd() + f'/../figs/p_vals_hist_' + setting + '.pdf')

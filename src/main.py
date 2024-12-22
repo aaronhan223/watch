@@ -24,158 +24,106 @@ import matplotlib.pyplot as plt
 import math
 
 
-## pip install ucimlrepo
-from ucimlrepo import fetch_ucirepo 
 
 
 
-def get_bike_sharing_data():
-    # fetch dataset 
-    bike_sharing_obj = fetch_ucirepo(id=275) 
+
+# def get_bike_sharing_data():
+#     # fetch dataset 
+#     bike_sharing_obj = fetch_ucirepo(id=275) 
     
-    bike_sharing = bike_sharing_obj.data.features.iloc[:,1:]
-    bike_sharing['count'] = bike_sharing_obj.data.targets
-    return bike_sharing
+#     bike_sharing = bike_sharing_obj.data.features.iloc[:,1:]
+#     bike_sharing['count'] = bike_sharing_obj.data.targets
+#     return bike_sharing
     
 
-def get_white_wine_data():
-    white_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv', sep=';')
-    return white_wine
+# def get_white_wine_data():
+#     white_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv', sep=';')
+#     return white_wine
 
 
-def get_white_wine_pca_data():
-    white_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv', sep=';')
-    return white_wine
+# def get_white_wine_pca_data():
+#     white_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv', sep=';')
+#     return white_wine
 
 
-def get_red_wine_data():
-    red_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv', sep=';')
-    return red_wine
+# def get_red_wine_data():
+#     red_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv', sep=';')
+#     return red_wine
 
 
-def get_airfoil_data():
-    airfoil = pd.read_csv(os.getcwd() + '/../datasets/airfoil/airfoil.txt', sep = '\t', header=None)
-    airfoil.columns = ["Frequency","Angle","Chord","Velocity","Suction","Sound"]
-    airfoil.iloc[:,0] = np.log(airfoil.iloc[:,0])
-    airfoil.iloc[:,4] = np.log(airfoil.iloc[:,4])
-    return airfoil
+# def get_airfoil_data():
+#     airfoil = pd.read_csv(os.getcwd() + '/../datasets/airfoil/airfoil.txt', sep = '\t', header=None)
+#     airfoil.columns = ["Frequency","Angle","Chord","Velocity","Suction","Sound"]
+#     airfoil.iloc[:,0] = np.log(airfoil.iloc[:,0])
+#     airfoil.iloc[:,4] = np.log(airfoil.iloc[:,4])
+#     return airfoil
 
-def get_airfoil_pca_data():
-    return get_airfoil_data()
-
-
-def get_1dim_synthetic_data(size=10000):
-    high=2*np.pi
-    X = np.random.uniform(low=0, high=high, size=size)
-    Y = np.zeros(size)
-    for i in range(0, size):
-        Y[i] = np.random.normal(np.sin(X[i]), (X[i]+1)/10)
-
-    return pd.DataFrame(np.c_[X, Y])
+# def get_airfoil_pca_data():
+#     return get_airfoil_data()
 
 
+# def get_1dim_synthetic_data(size=10000):
+#     high=2*np.pi
+#     X = np.random.uniform(low=0, high=high, size=size)
+#     Y = np.zeros(size)
+#     for i in range(0, size):
+#         Y[i] = np.random.normal(np.sin(X[i]), (X[i]+1)/10)
 
-def get_1dim_synthetic_v2_data(size=1000):
-    high=2*np.pi
-    X = np.random.uniform(low=-np.pi/2, high=high, size=size)
-    Y = np.zeros(size)
-    for i in range(0, size):
-        if (X[i] >= 0):
-            Y[i] = np.random.normal(np.sin(X[i]), np.abs(X[i]+1)/10)
-        else:
-            Y[i] = np.random.normal(-3*np.sin(X[i]**3), np.abs(X[i])/10)
-
-    return pd.DataFrame(np.c_[X, Y])
+#     return pd.DataFrame(np.c_[X, Y])
 
 
-def split_and_shift_dataset0(
-    dataset0, 
-    dataset0_name, 
-    test0_size, 
-    dataset0_shift_type='none', 
-    cov_shift_bias=1.0, 
-    label_uptick=1,
-    seed=0,
-    noise_mu=0,
-    noise_sigma=0
-):
-    
-    dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
-    
-    if (dataset0_shift_type == 'none'):
-        ## No shift within dataset0    
-        return dataset0_train, dataset0_test_0
-    
-    elif (dataset0_shift_type == 'covariate'):
-        ## Covariate shift within dataset0
-        dataset0_test_0 = dataset0_test_0.reset_index(drop=True)
-        
-        dataset0_train_copy = dataset0_train.copy()
-        
-        X_train = dataset0_train_copy.iloc[:, :-1].values
-#         print("np.shape(X_train) : ", np.shape(X_train))
-        dataset0_test_0_copy = dataset0_test_0.copy()
-        X_test_0 = dataset0_test_0_copy.iloc[:, :-1].values
-        
-#         ## 20241203 using full data as pool:
-#         X_dataset0 = dataset0.iloc[:, :-1].values
-        
-        dataset0_test_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
-#         dataset0_test_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_dataset0, dataset=dataset0_name, bias=cov_shift_bias)
 
-        return dataset0_train, dataset0_test_0.iloc[dataset0_test_0_biased_idx]
+# def get_1dim_synthetic_v2_data(size=1000):
+#     high=2*np.pi
+#     X = np.random.uniform(low=-np.pi/2, high=high, size=size)
+#     Y = np.zeros(size)
+#     for i in range(0, size):
+#         if (X[i] >= 0):
+#             Y[i] = np.random.normal(np.sin(X[i]), np.abs(X[i]+1)/10)
+#         else:
+#             Y[i] = np.random.normal(-3*np.sin(X[i]**3), np.abs(X[i])/10)
 
-#         return dataset0_train, dataset0.iloc[dataset0_test_0_biased_idx]
+#     return pd.DataFrame(np.c_[X, Y])
 
-    
-    elif (dataset0_shift_type == 'label'):
-        ## Label shift within dataset0
 
-        if 'wine' in dataset0_name:
-            # Define a threshold for 'alcohol' to identify high alcohol content wines
-            alcohol_threshold = dataset0_test_0['alcohol'].median()
-            # Increase the quality score by a number for wines with alcohol above the threshold
-            dataset0_test_0.loc[dataset0_test_0['alcohol'] > alcohol_threshold, 'quality'] += label_uptick
-            dataset0_test_0['quality'] = dataset0_test_0['quality'].clip(lower=0, upper=10)
 
-        return dataset0_train, dataset0_test_0
 
-    elif (dataset0_shift_type == 'noise'):
-        ## X-dependent noise within dataset0
-        data_before_shift = dataset0_test_0.copy()
-        if 'wine' in dataset0_name:
-            dataset0_test_0['sulphates'] += np.where(
-            dataset0_test_0['quality'] >= dataset0_test_0['quality'].median(),
-            # Add positive noise for higher quality wines
-            np.random.normal(loc=noise_mu, scale=noise_sigma, size=len(dataset0_test_0)),
-            # Subtract noise for lower quality wines
-            np.random.normal(loc=-noise_mu, scale=noise_sigma, size=len(dataset0_test_0)))
-            # Ensure 'sulphates' remains within valid range
-            dataset0_test_0['sulphates'] = dataset0_test_0['sulphates'].clip(lower=data_before_shift['sulphates'].min(), upper=data_before_shift['sulphates'].max())
-        return dataset0_train, dataset0_test_0
-        
-
-def split_into_folds(dataset0_train, seed=0):
-    y_name = dataset0_train.columns[-1] ## Outcome column must be last in dataframe
-    X = dataset0_train.drop(y_name, axis=1).to_numpy()
-    y = dataset0_train[y_name].to_numpy()
-    kf = KFold(n_splits=3, shuffle=True, random_state=seed)
-    folds = list(kf.split(X, y))
-    return X, y, folds
+# def split_into_folds(dataset0_train, seed=0):
+#     y_name = dataset0_train.columns[-1] ## Outcome column must be last in dataframe
+#     X = dataset0_train.drop(y_name, axis=1).to_numpy()
+#     y = dataset0_train[y_name].to_numpy()
+#     kf = KFold(n_splits=3, shuffle=True, random_state=seed)
+#     folds = list(kf.split(X, y))
+#     return X, y, folds
 
 
 
 
 
 def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0, cs_type='signed',\
-                       weights_to_compute='fixed_cal', dataset0_name='white_wine', cov_shift_bias=0):
+                       methods=['fixed_cal_oracle', 'none'], dataset0_name='white_wine', cov_shift_bias=0, init_phase=500):
     fold_results = []
     cs_0 = []
+    errors_0 = [] ## Prediction errors (absolute value residuals); recorded regardless of score function used
     cs_1 = []
-    W = [] ## Will contain estimated likelihood ratio weights for each fold
+    W_dict = {}
+    for method in methods:
+        W_dict[method] = []
+        
+#     W = [] ## Will contain estimated likelihood ratio weights for each fold
     n_cals = [] ## Num cal points in each fold
     
     y_name = dataset0_test_0.columns[-1] ## Outcome must be last column
+    
+    
+    ## Allocate some test points for density-ratio estimation:
+    print("init_phase : ", init_phase)
+    dataset0_test_w_est = dataset0_test_0.iloc[:init_phase]
+    X_test_w_est = dataset0_test_w_est.drop(y_name, axis=1).to_numpy()
+    ## Test points used in eval are all those not used for density-ratio estimation
+    dataset0_test_0 = dataset0_test_0.iloc[init_phase:]
+    
         
     for i, (train_index, cal_index) in enumerate(folds):
         if i == 2:  # Adjust the last fold to have 1099 in training
@@ -184,7 +132,6 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
         y_train, y_cal = y[train_index], y[cal_index]
         
         # Train the model on the training set proper
-        
         if (muh_fun_name == 'RF'):
             model = Pipeline([
                 ('scaler', StandardScaler()),  # Normalize the data
@@ -195,46 +142,53 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
                 ('scaler', StandardScaler()),  # Normalize the data
                 ('regressor', MLPRegressor(solver='lbfgs',activation='logistic', random_state=seed))
             ])
-            
         model.fit(X_train, y_train)
+        
         
         # Evaluate using the calibration set + test set 0 (Scenario 0)
         X_test_0 = np.concatenate((X_cal, dataset0_test_0.drop(y_name, axis=1).to_numpy()), axis=0)
         y_test_0 = np.concatenate((y_cal, dataset0_test_0[y_name].to_numpy()), axis=0)
         y_pred_0 = model.predict(X_test_0)
         
-        #### Computing likelihood ratios (estimated or oracle)
-        
-        ## Online logistic regression for weight estimation
-        W_i = [] ## List of weight est. arrays, each t-th array is length (n+t)
-        n_cal = len(X_cal)
-        n_cals.append(n_cal)
-        
-        if (weights_to_compute in ['fixed_cal', 'one_step_est']):
-            ## Estimating likelihood ratios for each cal, test point
-            ## np.shape(W_i) = (T, n_cal + T)
-            W_i = online_lik_ratio_estimates(X_test_0, n_cal, init_phase = 50)
-            W.append(W_i)
-        
-        elif (weights_to_compute in ['fixed_cal_oracle','one_step_oracle', 'batch_oracle', 'multistep_oracle']):
-#             print("getting oracle lik ratios")
-            ## Oracle one-step likelihood ratios
-            ## np.shape(W_i) = (n_cal + T, )
-            X_full = np.concatenate((X_train, X_test_0), axis = 0)
+        #### Computing (unnormalized) weights
+        for method in methods:
             
-            W_i = get_w(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias) 
-#             print(np.mean(W_i[n_cal:]) / np.mean(W_i[:n_cal]))
-#             print(W_i)
-            
-            if (weights_to_compute == 'batch_oracle'):
-                W_i = (W_i - min(W_i)) / (max(W_i) - min(W_i))
-                W_i = subsample_batch_weights(W_i, n_cal, max_num_samples=100)
-                
-                
-            if (weights_to_compute == 'multistep_oracle'):
-                W_i = np.tile(W_i, (len(X_test_0) - n_cal, 1))
-            
-            W.append(W_i)
+            ## Online logistic regression for weight estimation
+            W_i = [] ## List of weight est. arrays, each t-th array is length (n+t)
+            n_cal = len(X_cal)
+            n_cals.append(n_cal)
+
+            if (method in ['fixed_cal', 'one_step_est']):
+                ## Estimating likelihood ratios for each cal, test point
+                ## np.shape(W_i) = (T, n_cal + T)
+                W_i = online_lik_ratio_estimates(X_test_0, n_cal, init_phase = 500)
+
+
+            elif (method in ['fixed_cal_offline']):
+                W_i = offline_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0)
+
+
+            elif (method in ['fixed_cal_oracle','one_step_oracle', 'batch_oracle', 'multistep_oracle']):
+    #             print("getting oracle lik ratios")
+                ## Oracle one-step likelihood ratios
+                ## np.shape(W_i) = (n_cal + T, )
+                X_full = np.concatenate((X_train, X_test_0), axis = 0)
+
+                W_i = get_w(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias) 
+
+                if (method == 'batch_oracle'):
+                    W_i = (W_i - min(W_i)) / (max(W_i) - min(W_i))
+                    W_i = subsample_batch_weights(W_i, n_cal, max_num_samples=100)
+
+
+                if (method == 'multistep_oracle'):
+                    W_i = np.tile(W_i, (len(X_test_0) - n_cal, 1))
+                    
+            else:
+                ## Else: Unweighted / uniform-weighted CTM
+                W_i = np.ones(len(X_test_0))
+
+            W_dict[method].append(W_i)
            
 
         # Evaluate using the calibration set + test set 1 (Scenario 1)
@@ -258,6 +212,7 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             print("conformity_scores_0 shape : ", np.shape(conformity_scores_0))
             
         cs_0.append(conformity_scores_0)
+        errors_0.append(np.abs(y_test_0 - y_pred_0))
         
         if (dataset1 is not None):
             if (cs_type == 'signed'):
@@ -281,17 +236,16 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
                 'scenario_0_predictions': y_pred_0,
             })
                 
-    return cs_0, cs_1, W, n_cals
+    return cs_0, cs_1, W_dict, n_cals, errors_0
 
 
 
 
-def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, n_cal, verbose=False, weights_to_compute='fixed_cal', depth=1):
+def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, n_cal, verbose=False, method='fixed_cal_oracle', depth=1):
     p_values = calculate_p_values(conformity_score)
     
-    
-    if (weights_to_compute in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle']):
-        p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, weights_to_compute)
+    if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline']):
+        p_values = calculate_weighted_p_values(conformity_score, W_i, n_cal, method)
     
     retrain_m, martingale_value = simple_jumper_martingale(p_values, verbose=verbose)
 
@@ -314,7 +268,8 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
 def training_function(dataset0, dataset0_name, dataset1=None, training_schedule='variable', \
                       sr_threshold=1e6, cu_confidence=0.99, muh_fun_name='RF', test0_size=1599/4898, \
                       dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed', \
-                    label_uptick=1, verbose=False, noise_mu=0, noise_sigma=0, weights_to_compute='fixed_cal', depth=1):
+                    label_uptick=1, verbose=False, noise_mu=0, noise_sigma=0, methods=['fixed_cal_oracle', 'none'],\
+                      depth=1,init_phase=500):
     
     
     
@@ -324,7 +279,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                                                                label_uptick=label_uptick, noise_mu=noise_mu,\
                                                                 noise_sigma=noise_sigma)
     X, y, folds = split_into_folds(dataset0_train, seed=seed)
-    
+        
 #     ## Add simulated measurement noise with OLS
 #     ols = LinearRegression(fit_intercept=False)  # featurization from walsh_hadamard_from_seqs has intercept
 #     ols.fit(X, y)
@@ -339,46 +294,64 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
 #     resid = np.abs(y - y_pred)
 #     y = y + np.random.normal(0, resid)
 
-    cs_0, cs_1, W, n_cals = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed, cs_type=cs_type, weights_to_compute=weights_to_compute, dataset0_name=dataset0_name, cov_shift_bias=cov_shift_bias)
 
-    fold_martingales_0, fold_martingales_1 = [], []
-    sigmas_0, sigmas_1 = [], []
-    retrain_m_count_0, retrain_s_count_0 = 0, 0
-    retrain_m_count_1, retrain_s_count_1 = 0, 0
-    p_values_0 = []
-    coverage_0 = []
+    cs_0, cs_1, W_dict, n_cals, errors_0 = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed, cs_type=cs_type, methods=methods, dataset0_name=dataset0_name, cov_shift_bias=cov_shift_bias, init_phase=init_phase)
+    
+    martingales_0_dict, martingales_1_dict = {}, {}
+    sigmas_0_dict, sigmas_1_dict = {}, {}
+    retrain_m_count_0_dict, retrain_s_count_0_dict = {}, {}
+    retrain_m_count_1_dict, retrain_s_count_1_dict = {}, {}
+    p_values_0_dict = {}
+    coverage_0_dict = {}
+    
+    for method in methods:
+        martingales_0_dict[method], martingales_1_dict[method] = [], []
+        sigmas_0_dict[method], sigmas_1_dict[method] = [], []
+        retrain_m_count_0_dict[method], retrain_s_count_0_dict[method] = [], []
+        retrain_m_count_1_dict[method], retrain_s_count_1_dict[method] = [], []
+        p_values_0_dict[method] = []
+        coverage_0_dict[method] = []
+
+#     fold_martingales_0, fold_martingales_1 = [], []
+#     sigmas_0, sigmas_1 = [], []
+#     retrain_m_count_0, retrain_s_count_0 = 0, 0
+#     retrain_m_count_1, retrain_s_count_1 = 0, 0
+#     p_values_0 = []
+#     coverage_0 = []
         
     for i, score_0 in enumerate(cs_0):
-        if (weights_to_compute in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle']):
-            m_0, s_0, martingale_value_0, sigma_0, p_vals = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], verbose, weights_to_compute, depth)
-        else:
-            m_0, s_0, martingale_value_0, sigma_0, p_vals = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, None, n_cals[i], verbose, weights_to_compute, depth)
+        for method in methods:
+            
+            if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline']):
+                m_0, s_0, martingale_value_0, sigma_0, p_vals = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, W_dict[method][i], n_cals[i], verbose, method, depth)
+            else:
+                ## Run baseline with uniform weights
+                m_0, s_0, martingale_value_0, sigma_0, p_vals = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, None, n_cals[i], verbose, method, depth)
 
+            if m_0:
+                retrain_m_count_0_dict[method] += 1
+            if s_0:
+                retrain_s_count_0_dict[method] += 1
+                
+            martingales_0_dict[method].append(martingale_value_0)
+            sigmas_0_dict[method].append(sigma_0)
 
-        if m_0:
-            retrain_m_count_0 += 1
-        if s_0:
-            retrain_s_count_0 += 1
-        fold_martingales_0.append(martingale_value_0)
-        sigmas_0.append(sigma_0)
-        
-        ## Storing p-values
-        p_values_0.append(p_vals)
-        coverage_0.append(p_vals <= 0.9)
-#         p_values_0_test.append(p_vals[n_cals[i]:])
-        
-        
+            ## Storing p-values
+            p_values_0_dict[method].append(p_vals)
+            coverage_0_dict[method].append(p_vals <= 0.9)
+
     
-    
+    ## Note: 
     for i, score_1 in enumerate(cs_1):
-        m_1, s_1, martingale_value_1, sigma_1 = retrain_count(score_1, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], verbose, weights_to_compute, depth)
+        for method in methods:
+            m_1, s_1, martingale_value_1, sigma_1 = retrain_count(score_1, training_schedule, sr_threshold, cu_confidence, W[i], n_cals[i], verbose, method, depth)
 
-        if m_1:
-            retrain_m_count_1 += 1
-        if s_1:
-            retrain_s_count_1 += 1
-        fold_martingales_1.append(martingale_value_1)
-        sigmas_1.append(sigma_1)
+            if m_1:
+                retrain_m_count_1_dict[method] += 1
+            if s_1:
+                retrain_s_count_1_dict[method] += 1
+            martingales_1_dict[method].append(martingale_value_1)
+            sigmas_1_dict[method].append(sigma_1)
     
     ### Don't need this part for plotting purposes ###
     # Decide to retrain based on two out of three martingales exceeding the threshold
@@ -403,23 +376,31 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     #     print("No retraining needed for red wine.")
     ### Don't need this part for plotting purposes ###
         
-    min_len = np.min([len(sigmas_0[i]) for i in range(0, len(sigmas_0))])
+    ## min_len : Smallest fold length, for clipping longer ones to all same length
+    min_len = np.min([len(sigmas_0_dict[method][i]) for i in range(0, len(sigmas_0_dict[method]))])
     
-#     print("p_values_0[k]", len(p_values_0[0]))
-#     print(min_len)
+
     
-    paths = pd.DataFrame(np.c_[np.repeat(seed, min_len), np.arange(0, min_len)], columns = ['itrial', 'obs_idx'])
-    for k in range(0, len(sigmas_0)):
-        paths['sigmas_0_'+str(k)] = sigmas_0[k][0:min_len]
-        paths['cs_0_'+str(k)] = cs_0[k][0:min_len]
-        paths['pvals_0_'+str(k)] = p_values_0[k][0:min_len]
-        paths['coverage_0_'+str(k)] = coverage_0[k][0:min_len]
-    for k in range(0, len(sigmas_1)):
-        paths['sigmas_1_'+str(k)] = sigmas_1[k][0:min_len]
-        paths['cs_1_'+str(k)] = cs_1[k][0:min_len]
-        
+    paths_dict = {}
+    for method in methods:
     
-    return paths
+        paths = pd.DataFrame(np.c_[np.repeat(seed, min_len), np.arange(0, min_len)], columns = ['itrial', 'obs_idx'])
+        ## For each fold:
+        sigmas_0 = sigmas_0_dict[method]
+        sigmas_1 = sigmas_1_dict[method]
+        for k in range(0, len(sigmas_0_dict[method])):
+            paths['sigmas_0_'+str(k)] = sigmas_0_dict[method][k][0:min_len]
+#             paths['cs_0_'+str(k)] = cs_0[k][0:min_len]
+            paths['errors_0_'+str(k)] = errors_0[k][0:min_len]
+            paths['pvals_0_'+str(k)] = p_values_0_dict[method][k][0:min_len]
+            paths['coverage_0_'+str(k)] = coverage_0_dict[method][k][0:min_len]
+        for k in range(0, len(sigmas_1)):
+            paths['sigmas_1_'+str(k)] = sigmas_1[k][0:min_len]
+#             paths['cs_1_'+str(k)] = cs_1[k][0:min_len]
+            
+        paths_dict[method] = paths
+    
+    return paths_dict
 
         
 if __name__ == "__main__":
@@ -442,10 +423,13 @@ if __name__ == "__main__":
     parser.add_argument('--n_seeds', type=int, default=1, help='Number of random seeds to run experiments on.')
     parser.add_argument('--errs_window', type=int, default=50, help='Num observations to average for plotting errors.')
     parser.add_argument('--cs_type', type=str, default='signed', help="Nonconformity score type: 'abs' or 'signed' ")
-    parser.add_argument('--weights_to_compute', type=str, default='fixed_cal', help='Type of weight computation to do.')
-    parser.add_argument('--label_shift', type=float, default=1, help="Label shift value.")
-    parser.add_argument('--noise_mu', type=float, default=0.2, help="x-dependent noise mean, wine data")
-    parser.add_argument('--noise_sigma', type=float, default=0.05, help="x-dependent noise variance, wine data")
+#     parser.add_argument('--weights_to_compute', type=str, default='fixed_cal', help='Type of weight computation to do.')
+    parser.add_argument('--methods', nargs='+', help='Names of methods to try (weight types)', required = True)
+    parser.add_argument('--label_shift', type=float, default=0, help="Label shift value.")
+    parser.add_argument('--noise_mu', type=float, default=0.0, help="x-dependent noise mean, wine data")
+    parser.add_argument('--noise_sigma', type=float, default=0.0, help="x-dependent noise variance, wine data")
+    parser.add_argument('--init_phase', type=int, default=500, help="Num test pts that pre-trained density-ratio estimator has access to")
+
     ## python main.py dataset muh_fun_name bias
     ## python main.py --dataset0 white_wine --dataset1 red_wine --muh_fun_name NN --d0_shift_type covariate --bias 0.53
     
@@ -461,8 +445,9 @@ if __name__ == "__main__":
     n_seeds = args.n_seeds
     errs_window = args.errs_window
     cs_type = args.cs_type
-    weights_to_compute = args.weights_to_compute
-    print("cov_shift_bias: ", cov_shift_bias)
+#     weights_to_compute = args.weights_to_compute
+    methods = args.methods
+    init_phase = args.init_phase
     
     label_shift = args.label_shift    
     
@@ -473,12 +458,31 @@ if __name__ == "__main__":
     else:
         dataset1 = None
     
-    paths_all = pd.DataFrame()
-    print(f'Running {n_seeds} random experiments...\n')
+    paths_dict_all = {}
+    for method in methods:
+        paths_dict_all[method] = pd.DataFrame()
+#     paths_all = pd.DataFrame()
+    
+    
+    methods_all = "_".join(methods)
+    setting = '{}-{}-{}-shift_bias{}-label_shift{}-err_win{}-cs_type{}-nseeds{}-W{}'.format(
+        dataset0_name,
+        muh_fun_name,
+        dataset0_shift_type,
+        cov_shift_bias,
+        label_shift,
+        errs_window,
+        cs_type,
+        n_seeds,
+        methods_all
+    )
+    
+    print(f'Running with setting: {setting}...\n')
+    
     for seed in tqdm(range(0, n_seeds)):
         # training_schedule = ['variable', 'fix']
 
-        paths_curr = training_function(
+        paths_dict_curr = training_function(
             dataset0, 
             dataset0_name, 
             dataset1, 
@@ -494,128 +498,141 @@ if __name__ == "__main__":
             verbose=args.verbose,
             noise_mu=args.noise_mu,
             noise_sigma=args.noise_sigma,
-            weights_to_compute=weights_to_compute,
-            depth=args.depth
+            methods=methods,
+            depth=args.depth,
+            init_phase=init_phase
         )
-        paths_all = pd.concat([paths_all, paths_curr], ignore_index=True)
+        for method in methods:
+            paths_dict_all[method] = pd.concat([paths_dict_all[method], paths_dict_curr[method]], ignore_index=True)
         
-    setting = '{}-{}-{}-shift_bias{}-label_shift{}-err_win{}-cs_type{}-nseeds{}-W{}'.format(
-        dataset0_name,
-        muh_fun_name,
-        dataset0_shift_type,
-        cov_shift_bias,
-        label_shift,
-        errs_window,
-        cs_type,
-        n_seeds,
-        weights_to_compute
-    )
-    paths_all.to_csv(f'../results/' + setting + '.csv')
+        
+    ## Preparation for plotting
+    sigmas_0_means_dict, sigmas_1_means_dict = {}, {}
+    sigmas_0_stderr_dict, sigmas_1_stderr_dict = {}, {}
+    errors_0_means_dict, errors_1_means_dict = {}, {}
+    errors_0_stderr_dict, errors_1_stderr_dict = {}, {}
+    coverage_0_means_dict = {}
+    coverage_0_stderr_dict = {}
+    pvals_0_means_dict = {}
+    pvals_0_stderr_dict = {}
+    p_vals_cal_dict = {}
+    p_vals_test_dict = {}
     
-    ## Compute average and stderr values for plotting
-    paths_all_abs = paths_all.abs()
-    num_obs = paths_all_abs['obs_idx'].max() + 1
     
-    sigmas_0_means = []
-    sigmas_1_means = []
-    sigmas_0_stderr = []
-    sigmas_1_stderr = []
-    cs_abs_0_means = []
-    cs_abs_1_means = []
-    cs_abs_0_stderr = []
-    cs_abs_1_stderr = []
-    coverage_0_means = []
-    coverage_0_stderr = []
-    pvals_0_means = []
-    pvals_0_stderr = []
-    
-    ## For each fold/separate martingale path
-    for i in range(0, 3):
-        ## Compute average martingale values over trials
-        sigmas_0_means.append(paths_all_abs[['sigmas_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
-        
-        ## Compute average and stderr absolute score (residual) values over window, trials
-        cs_abs_0_means_fold = []
-        cs_abs_0_stderr_fold = []
-        coverage_0_means_fold = []
-        coverage_0_stderr_fold = []
-        pvals_0_means_fold = []
-        pvals_0_stderr_fold = []
-        for j in range(0, int(num_obs / errs_window)):
-            ## Subset dataframe by window
-            paths_all_abs_sub = paths_all_abs[paths_all_abs['obs_idx'].isin(np.arange(j*errs_window,(j+1)*errs_window))]
-            
-            ## Averages and stderrs for that window
-            cs_abs_0_means_fold.append(paths_all_abs_sub['cs_0_'+str(i)].mean())
-            cs_abs_0_stderr_fold.append(paths_all_abs_sub['cs_0_'+str(i)].std() / np.sqrt(n_seeds*errs_window))
-            
-            ## Coverages for window
-            coverage_0_means_fold.append(paths_all_abs_sub['coverage_0_'+str(i)].mean())
-            coverage_0_stderr_fold.append(paths_all_abs_sub['coverage_0_'+str(i)].std() / np.sqrt(n_seeds*errs_window))
-            
-            ## P values for window
-            pvals_0_means_fold.append(paths_all_abs_sub['pvals_0_'+str(i)].mean())
-            pvals_0_stderr_fold.append(paths_all_abs_sub['pvals_0_'+str(i)].std() / np.sqrt(n_seeds*errs_window))
-            
-        
-        ## Averages and stderrs for that fold
-        cs_abs_0_means.append(cs_abs_0_means_fold)
-        cs_abs_0_stderr.append(cs_abs_0_stderr_fold)
-        
-        ## Average coverages for fold
-        coverage_0_means.append(coverage_0_means_fold)
-        coverage_0_stderr.append(coverage_0_stderr_fold)
-        
-        ## Average pvals for fold
-        pvals_0_means.append(pvals_0_means_fold)
-        pvals_0_stderr.append(pvals_0_stderr_fold)
-        
-        
-        
-    print(np.shape(coverage_0_means[0]))
-    print(np.shape(coverage_0_means[0]))
-        
-    ## Plotting p-values for debugging
-    fig, ax = plt.subplots(1, 2)
     changepoint_index = len(dataset0)*(1-test0_size)/3
-    paths_cal = paths_all[paths_all['obs_idx'] < changepoint_index]
-    paths_test = paths_all[paths_all['obs_idx'] >= changepoint_index]
-    
-    p_vals_cal = np.concatenate((paths_cal['pvals_0_0'], paths_cal['pvals_0_1'], paths_cal['pvals_0_2']))
-    p_vals_test = np.concatenate((paths_test['pvals_0_0'], paths_test['pvals_0_1'], paths_test['pvals_0_2']))
 
-            
-    if (dataset1 is not None):
+    
+    for method in methods:
+        paths_dict_all[method].to_csv(f'../results/' + setting + '.csv')
+    
+        ## Compute average and stderr values for plotting
+        paths_all = paths_dict_all[method]
+        num_obs = paths_all['obs_idx'].max() + 1
+
+        sigmas_0_means, sigmas_1_means = [], []
+        sigmas_0_stderr, sigmas_1_stderr = [], []
+        errors_0_means, errors_1_means = [], []
+        errors_0_stderr, errors_1_stderr = [], []
+        coverage_0_means = []
+        coverage_0_stderr = []
+        pvals_0_means = []
+        pvals_0_stderr = []
+
+        ## For each fold/separate martingale path
         for i in range(0, 3):
             ## Compute average martingale values over trials
-            sigmas_1_means.append(paths_all_abs[['sigmas_1_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
+            sigmas_0_means.append(paths_all[['sigmas_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
 
             ## Compute average and stderr absolute score (residual) values over window, trials
-            cs_abs_1_means_fold = []
-            cs_abs_1_stderr_fold = []
-            for j in range(0, int(num_obs/errs_window)):
+            errors_0_means_fold = []
+            errors_0_stderr_fold = []
+            coverage_0_means_fold = []
+            coverage_0_stderr_fold = []
+            pvals_0_means_fold = []
+            pvals_0_stderr_fold = []
+            for j in range(0, int(num_obs / errs_window)):
                 ## Subset dataframe by window
-                paths_all_abs_sub = paths_all_abs[paths_all_abs['obs_idx'].isin(np.arange(j*errs_window,(j+1)*errs_window))]
+                paths_all_sub = paths_all[paths_all['obs_idx'].isin(np.arange(j*errs_window,(j+1)*errs_window))]
 
                 ## Averages and stderrs for that window
-                cs_abs_1_means_fold.append(paths_all_abs_sub['cs_1_'+str(i)].mean())
-                cs_abs_1_stderr_fold.append(paths_all_abs_sub['cs_1_'+str(i)].std()/ np.sqrt(n_seeds*errs_window))
+                errors_0_means_fold.append(paths_all_sub['errors_0_'+str(i)].mean())
+                errors_0_stderr_fold.append(paths_all_sub['errors_0_'+str(i)].std() / np.sqrt(n_seeds*errs_window))
+
+                ## Coverages for window
+                coverage_0_means_fold.append(paths_all_sub['coverage_0_'+str(i)].mean())
+                coverage_0_stderr_fold.append(paths_all_sub['coverage_0_'+str(i)].std() / np.sqrt(n_seeds*errs_window))
+
+                ## P values for window
+                pvals_0_means_fold.append(paths_all_sub['pvals_0_'+str(i)].mean())
+                pvals_0_stderr_fold.append(paths_all_sub['pvals_0_'+str(i)].std() / np.sqrt(n_seeds*errs_window))
+
 
             ## Averages and stderrs for that fold
-            cs_abs_1_means.append(cs_abs_1_means_fold)
-            cs_abs_1_stderr.append(cs_abs_1_stderr_fold)
+            errors_0_means.append(errors_0_means_fold)
+            errors_0_stderr.append(errors_0_stderr_fold)
+
+            ## Average coverages for fold
+            coverage_0_means.append(coverage_0_means_fold)
+            coverage_0_stderr.append(coverage_0_stderr_fold)
+
+            ## Average pvals for fold
+            pvals_0_means.append(pvals_0_means_fold)
+            pvals_0_stderr.append(pvals_0_stderr_fold)
+
+            
+        
+            if (dataset1 is not None):
+                ## Compute average martingale values over trials
+                sigmas_1_means.append(paths_all_abs[['sigmas_1_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
+
+                ## Compute average and stderr absolute score (residual) values over window, trials
+                errors_1_means_fold = []
+                errors_1_stderr_fold = []
+                for j in range(0, int(num_obs/errs_window)):
+                    ## Subset dataframe by window
+                    paths_all_sub = paths_all_abs[paths_all_abs['obs_idx'].isin(np.arange(j*errs_window,(j+1)*errs_window))]
+
+                    ## Averages and stderrs for that window
+                    errors_1_means_fold.append(paths_all_sub['errors_1_'+str(i)].mean())
+                    errors_1_stderr_fold.append(paths_all_sub['errors_1_'+str(i)].std()/ np.sqrt(n_seeds*errs_window))
+
+                ## Averages and stderrs for that fold
+                errors_1_means.append(errors_1_means_fold)
+                errors_1_stderr.append(errors_1_stderr_fold)
+                
+                
+        sigmas_0_means_dict[method], sigmas_1_means_dict[method] = sigmas_0_means, sigmas_1_means
+        sigmas_0_stderr_dict[method], sigmas_1_stderr_dict[method] = sigmas_0_stderr, sigmas_1_stderr
+        errors_0_means_dict[method], errors_1_means_dict[method] = errors_0_means, errors_1_means
+        errors_0_stderr_dict[method], errors_1_stderr_dict[method] = errors_0_stderr, errors_1_stderr
+        coverage_0_means_dict[method] = coverage_0_means
+        coverage_0_stderr_dict[method] = coverage_0_stderr
+        pvals_0_means_dict[method] = pvals_0_means
+        pvals_0_stderr_dict[method] = pvals_0_stderr
+                
+        
+        
+        ## Plotting p-values for debugging
+        paths_cal = paths_all[paths_all['obs_idx'] < changepoint_index]
+        paths_test = paths_all[paths_all['obs_idx'] >= changepoint_index]
+
+        p_vals_cal = np.concatenate((paths_cal['pvals_0_0'], paths_cal['pvals_0_1'], paths_cal['pvals_0_2']))
+        p_vals_test = np.concatenate((paths_test['pvals_0_0'], paths_test['pvals_0_1'], paths_test['pvals_0_2']))
+        p_vals_cal_dict[method] = p_vals_cal
+        p_vals_test_dict[method] = p_vals_test
+    
         
     plot_martingale_paths(
-        dataset0_paths=sigmas_0_means,
+        dataset0_paths_dict=sigmas_0_means_dict,
         dataset0_name=dataset0_name,
-        dataset1_paths=sigmas_1_means, 
+        dataset1_paths_dict=sigmas_1_means_dict, 
         dataset1_name=dataset1_name,
-        cs_abs_0_means=cs_abs_0_means,
-        cs_abs_1_means=cs_abs_1_means,
-        cs_abs_0_stderr=cs_abs_0_stderr,
-        cs_abs_1_stderr=cs_abs_1_stderr,
-        p_vals_cal=p_vals_cal,
-        p_vals_test=p_vals_test,
+        errors_0_means_dict=errors_0_means_dict,
+        errors_1_means_dict=errors_1_means_dict,
+        errors_0_stderr_dict=errors_0_stderr_dict,
+        errors_1_stderr_dict=errors_1_stderr_dict,
+        p_vals_cal_dict=p_vals_cal_dict,
+        p_vals_test_dict=p_vals_test_dict,
         errs_window=errs_window,
         change_point_index=len(dataset0)*(1-test0_size)/3,
         title="Average paths of Shiryaev-Roberts Procedure",
@@ -630,10 +647,10 @@ if __name__ == "__main__":
         n_seeds=n_seeds,
         cs_type=cs_type,
         setting=setting,
-        coverage_0_means=coverage_0_means,
-        coverage_0_stderr=coverage_0_stderr,
-        pvals_0_means=pvals_0_means,
-        pvals_0_stderr=pvals_0_stderr,
-        weights_to_compute=weights_to_compute
+        coverage_0_means_dict=coverage_0_means_dict,
+        coverage_0_stderr_dict=coverage_0_stderr_dict,
+        pvals_0_means_dict=pvals_0_means_dict,
+        pvals_0_stderr_dict=pvals_0_stderr_dict,
+        methods=methods
     )
     print('\nProgram done!')

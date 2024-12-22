@@ -7,6 +7,18 @@ import os
 import pdb
 
 
+## pip install ucimlrepo
+from ucimlrepo import fetch_ucirepo 
+
+
+def get_bike_sharing_data():
+    # fetch dataset 
+    bike_sharing_obj = fetch_ucirepo(id=275) 
+    
+    bike_sharing = bike_sharing_obj.data.features.iloc[:,1:]
+    bike_sharing['count'] = bike_sharing_obj.data.targets
+    return bike_sharing
+
 def get_white_wine_data():
     white_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv', sep=';')
     return white_wine
@@ -46,6 +58,7 @@ def get_superconduct_data():
     superconduct_data = pd.read_csv(os.getcwd() + '/../datasets/superconduct/train.csv')
     return superconduct_data
 
+
 def get_wave_data():
     wave_data = pd.read_csv(
         os.getcwd() + '/../datasets/wave/WECs_DataSet/Sydney_Data.csv', 
@@ -53,6 +66,29 @@ def get_wave_data():
     )
     wave_data = wave_data.dropna()
     return wave_data
+
+def get_1dim_synthetic_data(size=10000):
+    high=2*np.pi
+    X = np.random.uniform(low=0, high=high, size=size)
+    Y = np.zeros(size)
+    for i in range(0, size):
+        Y[i] = np.random.normal(np.sin(X[i]), (X[i]+1)/10)
+
+    return pd.DataFrame(np.c_[X, Y])
+
+
+
+def get_1dim_synthetic_v2_data(size=1000):
+    high=2*np.pi
+    X = np.random.uniform(low=-np.pi/2, high=high, size=size)
+    Y = np.zeros(size)
+    for i in range(0, size):
+        if (X[i] >= 0):
+            Y[i] = np.random.normal(np.sin(X[i]), np.abs(X[i]+1)/10)
+        else:
+            Y[i] = np.random.normal(-3*np.sin(X[i]**3), np.abs(X[i])/10)
+
+    return pd.DataFrame(np.c_[X, Y])
 
 
 def compute_w_ptest_split_active_replacement(cal_test_vals_mat, depth_max):
@@ -241,6 +277,7 @@ def wsample(wts, n, d, frac=0.5):
     indices_all = np.arange(0, n)
     normalized_wts = wts/np.sum(wts)
     target_num_indices = int(n*frac)
+#     np.random.seed(seed=0) ## Added this 20241220
     indices = np.random.choice(indices_all, size=target_num_indices, p=normalized_wts)
 #     print(np.shape(indices))
 #     print(indices)
@@ -283,6 +320,7 @@ def split_and_shift_dataset0(
 ):
     
     dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
+    
 
     if (dataset0_shift_type == 'none'):
         ## No shift within dataset0    
@@ -299,6 +337,7 @@ def split_and_shift_dataset0(
         X_test_0 = dataset0_test_0_copy.iloc[:, :-1].values
         
         dataset0_test_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
+        
         
         return dataset0_train, dataset0_test_0.iloc[dataset0_test_0_biased_idx]
     
@@ -329,6 +368,12 @@ def split_and_shift_dataset0(
             # Increase Power_Output by 15% for instances where X_mean is above the threshold
             dataset0_test_0.loc[dataset0_test_0['X1'] > x_mean_threshold, 'Power_Output'] *= 1.15
             dataset0_test_0['Power_Output'] = dataset0_test_0['Power_Output'].clip(lower=0)
+            
+        elif 'bike_sharing' in dataset0_name:
+            ## For 25% coldest of days, increase number of bike rentals by 10%:
+            temp_threshold = dataset0_test_0['temp'].quantile(0.25) 
+            dataset0_test_0.loc[dataset0_test_0['temp'] < temp_threshold, 'count'] *= 2
+            
 
         return dataset0_train, dataset0_test_0
 

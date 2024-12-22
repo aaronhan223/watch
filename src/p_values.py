@@ -1,6 +1,20 @@
 import numpy as np
 from sklearn.linear_model import SGDClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
 import pdb
+
+## Ofline density ratio estimation
+def logistic_regression_weight_est(X, class_labels):
+    clf = LogisticRegression(random_state=0).fit(X, class_labels)
+    lr_probs = clf.predict_proba(X)
+    return lr_probs[:,1] / lr_probs[:,0]
+
+def random_forest_weight_est(X, class_labels, ntree=100):
+    rf = RandomForestClassifier(n_estimators=ntree,criterion='entropy', min_weight_fraction_leaf=0.1).fit(X, class_labels)
+    rf_probs = rf.predict_proba(X)
+    return rf_probs[:,1] / rf_probs[:,0]
+
 
 def online_lik_ratio_estimates(X_test_0, n_cal, init_phase = 50):
     
@@ -31,6 +45,26 @@ def online_lik_ratio_estimates(X_test_0, n_cal, init_phase = 50):
     return W_i
 
 
+def offline_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0, classifier='LR'):
+    n_cal = len(X_cal)
+    init_phase = len(X_test_w_est)
+    
+    ## X_cal and X_test_w_est used for weight estimation
+    X_w_est = np.concatenate((X_cal, X_test_w_est), axis=0)
+    class_labels = np.concatenate((np.zeros(n_cal), np.ones(init_phase)), axis=0)
+
+    if (classifier=='LR'):
+        clf = LogisticRegression(random_state=0).fit(X_w_est, class_labels)
+        lr_probs = clf.predict_proba(X_test_0)
+        return lr_probs[:,1] / lr_probs[:,0]
+        
+    elif (classifier=='RF'):
+        rf = RandomForestClassifier(n_estimators=ntree,criterion='entropy', min_weight_fraction_leaf=0.1).fit(X_w_est, class_labels)
+        rf_probs = rf.predict_proba(X_test_0)
+        return rf_probs[:,1] / rf_probs[:,0]
+        
+
+
 def calculate_p_values(conformity_scores):
     """
     Calculate the conformal p-values from conformity scores.
@@ -44,25 +78,25 @@ def calculate_p_values(conformity_scores):
 
 
 ## Note: This is for calculating the weighted p-values once the normalized weights have already been calculated
-def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_compute='fixed_cal', depth=1):
+def calculate_weighted_p_values(conformity_scores, W_i, n_cal, method='fixed_cal_oracle', depth=1):
     """
     Calculate the weighted conformal p-values from conformity scores and given normalized weights 
     (i.e., enforce np.sum(normalized_weights) = 1).
     
     W_i : List of likelihood ratio weight est. arrays, each t-th array is length (n_cal+t)
     """
-    init_phase = 100
+    init_phase = 0
     wp_values = np.zeros(len(conformity_scores))
     
     
-    ## p-values for original calibration set calculated as before
+    ## p-values for original calibration set calculated as before (REVISIT THIS LINE)
     wp_values[0:(n_cal+init_phase)] = calculate_p_values(conformity_scores[0:(n_cal+init_phase)]) 
         
-    if weights_to_compute in ['fixed_cal', 'fixed_cal_oracle', 'sliding_window']:
+    if method in ['fixed_cal', 'fixed_cal_oracle', 'sliding_window', 'fixed_cal_offline']:
 
-        if weights_to_compute == 'fixed_cal':
+        if method == 'fixed_cal':
             assert depth == 1, "Estimation depth must be 1."
-        elif weights_to_compute == 'sliding_window':
+        elif method == 'sliding_window':
             assert depth > 1, "Estimation depth must be greater than 1."
 
         T = len(conformity_scores) - n_cal ## Number of total test observations
@@ -79,7 +113,7 @@ def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_comput
             ## Subset conformity scores and weights based on idx_include
             conformity_scores_t = conformity_scores[idx_include]
             
-            if (weights_to_compute == 'fixed_cal_oracle'):
+            if (method in ['fixed_cal_oracle', 'fixed_cal_offline']):
                 W_i_t = W_i[idx_include]
             else:
                 W_i_t = W_i[t_][idx_include]
@@ -92,7 +126,7 @@ def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_comput
             wp_values[n_cal+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
                             np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
 
-    elif (weights_to_compute in ['one_step_oracle', 'one_step_est', 'batch_oracle', 'multistep_oracle']):
+    elif (method in ['one_step_oracle', 'one_step_est', 'batch_oracle', 'multistep_oracle']):
         
         T = len(conformity_scores) - n_cal ## Number of total test observations
         
@@ -103,13 +137,13 @@ def calculate_weighted_p_values(conformity_scores, W_i, n_cal, weights_to_comput
             ## Subset conformity scores and weights based on idx_include
             conformity_scores_t = conformity_scores[:(n_cal+t_+1)]
             
-            if (weights_to_compute in ['one_step_est', 'batch_oracle']):
+            if (method in ['one_step_est', 'batch_oracle']):
                 W_i_t = W_i[t_][:(n_cal+t_+1)]
                 
-            elif (weights_to_compute == 'one_step_oracle'):
+            elif (method == 'one_step_oracle'):
                 W_i_t = W_i[:(n_cal+t_+1)]
                 
-            elif (weights_to_compute == 'multistep_oracle'):
+            elif (method == 'multistep_oracle'):
                 w_mat = np.matrix(W_i[-(t_+2):,:(n_cal+t_+1)])
                 
                 W_i_t = compute_w_ptest_split_active_replacement(w_mat, depth_max=2)
