@@ -3,6 +3,7 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 import pdb
+from sklearn import preprocessing
 
 ## Ofline density ratio estimation
 def logistic_regression_weight_est(X, class_labels):
@@ -16,52 +17,75 @@ def random_forest_weight_est(X, class_labels, ntree=100):
     return rf_probs[:,1] / rf_probs[:,0]
 
 
-def online_lik_ratio_estimates(X_test_0, n_cal, init_phase = 50):
-    
-    T = len(X_test_0) - n_cal ## Number of test points (points after true changepoint)
-    
-    W_i = np.zeros((T, (n_cal + T)))
-    
-    ## Initialize density ratio estimation with 'init_phase' number of first test points
-    X_test_0_curr = X_test_0[0:(n_cal+init_phase)] 
-    class_labels = np.concatenate((np.zeros(n_cal), np.ones(init_phase)), axis=0)
-    clf = SGDClassifier(random_state=0, loss='log_loss', alpha=0.1, max_iter=1000)
-    clf.fit(X_test_0_curr, class_labels)
 
-    for t in range(1, T+1):
+
+def online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, classifier='LR'):
+    
+    n_cal = len(X_cal)
+    init_phase = len(X_test_w_est)
+    n_test = len(X_test_0_only)
+    
+    W_i = np.zeros((n_test, n_cal + n_test))
+    
+    if (classifier=='LR'):
+        lik_ratio_model = LogisticRegression(warm_start=True)
         
-        if (t <= init_phase):
-            ## In the initial phase, assigning uniform weight to all points
-            W_i[t-1] = np.ones(n_cal+T)
-
-        else:
-            ## 
-            X_test_0_curr = X_test_0[0:(n_cal+t)] ## X_{1:(n+t)} cal and test points
-            class_labels = np.concatenate((np.zeros(n_cal), np.ones(t)), axis=0)
-            clf.partial_fit(X_test_0_curr[-1].reshape(1, -1), np.array([class_labels[-1]]))
-            lr_probs = clf.predict_proba(X_test_0)
-            W_i[t-1] = lr_probs[:,1] / lr_probs[:,0] ## p_test / p_train
-
+    elif (classifier=='RF'):
+        lik_ratio_model = RandomForestClassifier(n_estimators=ntree,criterion='entropy', min_weight_fraction_leaf=0.1,\
+                                                 warm_start=True)
+    
+    ## Scale data
+    X_all = np.concatenate((X_cal, X_test_w_est, X_test_0_only), axis=0)
+    scaler = preprocessing.StandardScaler().fit(X_all)
+    X_all_scaled = scaler.transform(X_all)
+    X_cal_test_scaled = np.concatenate((X_all_scaled[0:n_cal], X_all_scaled[-n_test:]), axis=0)
+    
+    class_labels_all = np.concatenate((np.zeros(n_cal), np.ones(init_phase + n_test)), axis=0)
+    idx_include = np.concatenate((np.repeat(True, n_cal + init_phase), np.repeat(False, n_test)), axis=0)
+        
+        
+    ## t=0 : Offline initialization phase (but set warm_start=True)
+    ## t>0 : Online adaptation phase
+    for t in range(0, n_test):
+        
+        lik_ratio_model.fit(X_all_scaled[idx_include], class_labels_all[idx_include])
+        
+        est_probs = lik_ratio_model.predict_proba(X_cal_test_scaled)
+        W_i[t] = est_probs[:,1] / est_probs[:,0]
+#         print(f'W_i[{t}][-10:] : ', W_i[t][-10:])
+        
+        idx_include[n_cal + init_phase + t] = True
+    
+    
     return W_i
 
 
-def offline_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0, classifier='LR'):
+
+def offline_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, classifier='LR'):
     n_cal = len(X_cal)
     init_phase = len(X_test_w_est)
+    n_test = len(X_test_0_only)
     
-    ## X_cal and X_test_w_est used for weight estimation
-    X_w_est = np.concatenate((X_cal, X_test_w_est), axis=0)
     class_labels = np.concatenate((np.zeros(n_cal), np.ones(init_phase)), axis=0)
-
+    
+    ## Scale data
+    X_all = np.concatenate((X_cal, X_test_w_est, X_test_0_only), axis=0)
+    scaler = preprocessing.StandardScaler().fit(X_all)
+    X_all_scaled = scaler.transform(X_all)
+    
+    ## Fit lik_ratio_model using cal + init_phase data
     if (classifier=='LR'):
-        clf = LogisticRegression(random_state=0).fit(X_w_est, class_labels)
-        lr_probs = clf.predict_proba(X_test_0)
-        return lr_probs[:,1] / lr_probs[:,0]
+        lik_ratio_model = LogisticRegression(random_state=0).fit(X_all_scaled[0:(n_cal + init_phase)], class_labels)
         
     elif (classifier=='RF'):
-        rf = RandomForestClassifier(n_estimators=ntree,criterion='entropy', min_weight_fraction_leaf=0.1).fit(X_w_est, class_labels)
-        rf_probs = rf.predict_proba(X_test_0)
-        return rf_probs[:,1] / rf_probs[:,0]
+        lik_ratio_model = RandomForestClassifier(n_estimators=ntree,criterion='entropy',\
+                                                 min_weight_fraction_leaf=0.1).fit(X_all_scaled[0:(n_cal + init_phase)], class_labels)
+        
+    X_cal_test_scaled = np.concatenate((X_all_scaled[0:n_cal], X_all_scaled[-n_test:]), axis=0)
+    
+    est_probs = lik_ratio_model.predict_proba(X_cal_test_scaled)
+    return est_probs[:,1] / est_probs[:,0]
+
         
 
 

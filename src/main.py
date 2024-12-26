@@ -27,80 +27,6 @@ import math
 
 
 
-
-# def get_bike_sharing_data():
-#     # fetch dataset 
-#     bike_sharing_obj = fetch_ucirepo(id=275) 
-    
-#     bike_sharing = bike_sharing_obj.data.features.iloc[:,1:]
-#     bike_sharing['count'] = bike_sharing_obj.data.targets
-#     return bike_sharing
-    
-
-# def get_white_wine_data():
-#     white_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv', sep=';')
-#     return white_wine
-
-
-# def get_white_wine_pca_data():
-#     white_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv', sep=';')
-#     return white_wine
-
-
-# def get_red_wine_data():
-#     red_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv', sep=';')
-#     return red_wine
-
-
-# def get_airfoil_data():
-#     airfoil = pd.read_csv(os.getcwd() + '/../datasets/airfoil/airfoil.txt', sep = '\t', header=None)
-#     airfoil.columns = ["Frequency","Angle","Chord","Velocity","Suction","Sound"]
-#     airfoil.iloc[:,0] = np.log(airfoil.iloc[:,0])
-#     airfoil.iloc[:,4] = np.log(airfoil.iloc[:,4])
-#     return airfoil
-
-# def get_airfoil_pca_data():
-#     return get_airfoil_data()
-
-
-# def get_1dim_synthetic_data(size=10000):
-#     high=2*np.pi
-#     X = np.random.uniform(low=0, high=high, size=size)
-#     Y = np.zeros(size)
-#     for i in range(0, size):
-#         Y[i] = np.random.normal(np.sin(X[i]), (X[i]+1)/10)
-
-#     return pd.DataFrame(np.c_[X, Y])
-
-
-
-# def get_1dim_synthetic_v2_data(size=1000):
-#     high=2*np.pi
-#     X = np.random.uniform(low=-np.pi/2, high=high, size=size)
-#     Y = np.zeros(size)
-#     for i in range(0, size):
-#         if (X[i] >= 0):
-#             Y[i] = np.random.normal(np.sin(X[i]), np.abs(X[i]+1)/10)
-#         else:
-#             Y[i] = np.random.normal(-3*np.sin(X[i]**3), np.abs(X[i])/10)
-
-#     return pd.DataFrame(np.c_[X, Y])
-
-
-
-
-# def split_into_folds(dataset0_train, seed=0):
-#     y_name = dataset0_train.columns[-1] ## Outcome column must be last in dataframe
-#     X = dataset0_train.drop(y_name, axis=1).to_numpy()
-#     y = dataset0_train[y_name].to_numpy()
-#     kf = KFold(n_splits=3, shuffle=True, random_state=seed)
-#     folds = list(kf.split(X, y))
-#     return X, y, folds
-
-
-
-
-
 def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0, cs_type='signed',\
                        methods=['fixed_cal_oracle', 'none'], dataset0_name='white_wine', cov_shift_bias=0, init_phase=500):
     fold_results = []
@@ -144,11 +70,14 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             ])
         model.fit(X_train, y_train)
         
+        ## Save test set alone
+        X_test_0_only = dataset0_test_0.drop(y_name, axis=1).to_numpy()
+        y_test_0_only = dataset0_test_0[y_name].to_numpy()
         
-        # Evaluate using the calibration set + test set 0 (Scenario 0)
-        X_test_0 = np.concatenate((X_cal, dataset0_test_0.drop(y_name, axis=1).to_numpy()), axis=0)
-        y_test_0 = np.concatenate((y_cal, dataset0_test_0[y_name].to_numpy()), axis=0)
-        y_pred_0 = model.predict(X_test_0)
+        # Evaluate using the calibration set + test set 0 
+        X_cal_test_0 = np.concatenate((X_cal, X_test_0_only), axis=0)
+        y_cal_test_0 = np.concatenate((y_cal, y_test_0_only), axis=0)
+        y_pred_0 = model.predict(X_cal_test_0)
         
         #### Computing (unnormalized) weights
         for method in methods:
@@ -161,20 +90,20 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             if (method in ['fixed_cal', 'one_step_est']):
                 ## Estimating likelihood ratios for each cal, test point
                 ## np.shape(W_i) = (T, n_cal + T)
-                W_i = online_lik_ratio_estimates(X_test_0, n_cal, init_phase = 500)
+                W_i = online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only)
 
 
             elif (method in ['fixed_cal_offline']):
-                W_i = offline_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0)
-
+#                 W_i = offline_lik_ratio_estimates(X_cal, X_test_w_est, X_cal_test_0)
+                W_i = offline_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only)
 
             elif (method in ['fixed_cal_oracle','one_step_oracle', 'batch_oracle', 'multistep_oracle']):
     #             print("getting oracle lik ratios")
                 ## Oracle one-step likelihood ratios
                 ## np.shape(W_i) = (n_cal + T, )
-                X_full = np.concatenate((X_train, X_test_0), axis = 0)
+                X_full = np.concatenate((X_train, X_cal_test_0), axis = 0)
 
-                W_i = get_w(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias) 
+                W_i = get_w(x_pca=X_train, x=X_cal_test_0, dataset=dataset0_name, bias=cov_shift_bias) 
 
                 if (method == 'batch_oracle'):
                     W_i = (W_i - min(W_i)) / (max(W_i) - min(W_i))
@@ -182,11 +111,11 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
 
 
                 if (method == 'multistep_oracle'):
-                    W_i = np.tile(W_i, (len(X_test_0) - n_cal, 1))
+                    W_i = np.tile(W_i, (len(X_cal_test_0) - n_cal, 1))
                     
             else:
                 ## Else: Unweighted / uniform-weighted CTM
-                W_i = np.ones(len(X_test_0))
+                W_i = np.ones(len(X_cal_test_0))
 
             W_dict[method].append(W_i)
            
@@ -200,19 +129,19 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
         np.set_printoptions(threshold=np.inf)
         
         if (cs_type == 'signed'):
-            conformity_scores_0 = y_test_0 - y_pred_0
+            conformity_scores_0 = y_cal_test_0 - y_pred_0
         elif (cs_type == 'abs'):
-            conformity_scores_0 = np.abs(y_test_0 - y_pred_0)
+            conformity_scores_0 = np.abs(y_cal_test_0 - y_pred_0)
             print("conformity_scores_0 shape : ", np.shape(conformity_scores_0))
         elif (cs_type == 'nn_dist'):
             ## CS is nearest neighbor distance
             nbrs = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(X_train)
-            distances, _ = nbrs.kneighbors(X_test_0)
+            distances, _ = nbrs.kneighbors(X_cal_test_0)
             conformity_scores_0 = distances.flatten()
             print("conformity_scores_0 shape : ", np.shape(conformity_scores_0))
             
         cs_0.append(conformity_scores_0)
-        errors_0.append(np.abs(y_test_0 - y_pred_0))
+        errors_0.append(np.abs(y_cal_test_0 - y_pred_0))
         
         if (dataset1 is not None):
             if (cs_type == 'signed'):
