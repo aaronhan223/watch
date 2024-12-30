@@ -24,9 +24,6 @@ import matplotlib.pyplot as plt
 import math
 
 
-
-
-
 def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0, cs_type='signed',\
                        methods=['fixed_cal_oracle', 'none'], dataset0_name='white_wine', cov_shift_bias=0, init_phase=500):
     fold_results = []
@@ -166,8 +163,6 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             })
                 
     return cs_0, cs_1, W_dict, n_cals, errors_0
-
-
 
 
 def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, n_cal, verbose=False, method='fixed_cal_oracle', depth=1):
