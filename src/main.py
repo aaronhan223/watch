@@ -24,9 +24,6 @@ import matplotlib.pyplot as plt
 import math
 
 
-
-
-
 def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0, cs_type='signed',\
                        methods=['fixed_cal_oracle', 'none'], dataset0_name='white_wine', cov_shift_bias=0, init_phase=500):
     fold_results = []
@@ -50,7 +47,7 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
     ## Test points used in eval are all those not used for density-ratio estimation
     dataset0_test_0 = dataset0_test_0.iloc[init_phase:]
     
-        
+
     for i, (train_index, cal_index) in enumerate(folds):
         print("fold : ", i)
         if i == 2:  # Adjust the last fold to have 1099 in training
@@ -172,8 +169,6 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
     return cs_0, cs_1, W_dict, n_cals, errors_0
 
 
-
-
 def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, n_cal, verbose=False, method='fixed_cal_oracle', depth=1):
     p_values = calculate_p_values(conformity_score)
     
@@ -201,7 +196,7 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
 def training_function(dataset0, dataset0_name, dataset1=None, training_schedule='variable', \
                       sr_threshold=1e6, cu_confidence=0.99, muh_fun_name='RF', test0_size=1599/4898, \
                       dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed', \
-                    label_uptick=1, verbose=False, noise_mu=0, noise_sigma=0, methods=['fixed_cal_oracle', 'none'],\
+                      label_uptick=1, verbose=False, noise_mu=0, noise_sigma=0, methods=['fixed_cal_oracle', 'none'],\
                       depth=1,init_phase=500):
     
     
@@ -314,8 +309,6 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     ## min_len : Smallest fold length, for clipping longer ones to all same length
     min_len = np.min([len(sigmas_0_dict[method][i]) for i in range(0, len(sigmas_0_dict[method]))])
     
-
-    
     paths_dict = {}
     for method in methods:
     
@@ -383,7 +376,6 @@ if __name__ == "__main__":
 #     weights_to_compute = args.weights_to_compute
     methods = args.methods
     init_phase = args.init_phase
-    
     label_shift = args.label_shift    
     
     ## Load datasets into dataframes
@@ -397,7 +389,6 @@ if __name__ == "__main__":
     for method in methods:
         paths_dict_all[method] = pd.DataFrame()
 #     paths_all = pd.DataFrame()
-    
     
     methods_all = "_".join(methods)
     setting = '{}-{}-{}-shift_bias{}-label_shift{}-err_win{}-cs_type{}-nseeds{}-W{}'.format(
@@ -453,9 +444,7 @@ if __name__ == "__main__":
     p_vals_cal_dict = {}
     p_vals_test_dict = {}
     
-    
     changepoint_index = len(dataset0)*(1-test0_size)/3
-
     
     for method in methods:
         paths_dict_all[method].to_csv(f'../results/' + setting + '.csv')
@@ -545,7 +534,6 @@ if __name__ == "__main__":
         pvals_0_means_dict[method] = pvals_0_means
         pvals_0_stderr_dict[method] = pvals_0_stderr
                 
-        
         
         ## Plotting p-values for debugging
         paths_cal = paths_all[paths_all['obs_idx'] < changepoint_index]

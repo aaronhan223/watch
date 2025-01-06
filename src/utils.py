@@ -4,6 +4,11 @@ from copy import deepcopy
 from sklearn.model_selection import train_test_split, KFold, cross_val_score
 import pandas as pd
 import os
+import torch
+import torch.nn as nn
+import torchvision
+import torchvision.transforms as transforms
+from torch.utils.data import random_split, Dataset, DataLoader
 import pdb
 
 
@@ -64,7 +69,6 @@ def get_superconduct_data():
     superconduct_data = superconduct_data.sample(n=10000, random_state=0)
     return superconduct_data
 
-
 def get_wave_data():
     wave_data = pd.read_csv(
         os.getcwd() + '/../datasets/wave/WECs_DataSet/Sydney_Data.csv', 
@@ -84,7 +88,6 @@ def get_1dim_synthetic_data(size=10000):
     return pd.DataFrame(np.c_[X, Y])
 
 
-
 def get_1dim_synthetic_v2_data(size=1000):
     high=2*np.pi
     X = np.random.uniform(low=-np.pi/2, high=high, size=size)
@@ -96,6 +99,210 @@ def get_1dim_synthetic_v2_data(size=1000):
             Y[i] = np.random.normal(-3*np.sin(X[i]**3), np.abs(X[i])/10)
 
     return pd.DataFrame(np.c_[X, Y])
+
+
+class NpyDataset(Dataset):
+    """
+    A custom Dataset that loads .npy image data and corresponding labels.
+    """
+    def __init__(self, images_path, labels_path, transform=None):
+        """
+        Args:
+            images_path (str): Path to the .npy file containing image data.
+            labels_path (str): Path to the .npy file containing labels.
+            transform (callable, optional): Optional transform to be applied
+                on each image.
+        """
+        self.images = np.load(images_path)     # shape typically (N, H, W) or (N, H, W, C)
+        self.labels = np.load(labels_path)     # shape (N,)
+
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        img = self.images[idx]
+        label = self.labels[idx]
+
+        if self.transform:
+            img = self.transform(img)
+
+        return img, label
+    
+
+class NpyCIFAR10CDataset(Dataset):
+    """
+    A custom dataset for CIFAR-10-C if data is stored in .npy files.
+    Expects shape (N, 32, 32, 3) for images and shape (N,) for labels.
+    """
+    def __init__(self, images_path, labels_path, severity, transform=None):
+        super().__init__()
+        self.images = np.load(images_path)[(severity - 1)*10000: severity*10000]   # shape: (N, 32, 32, 3)
+        self.labels = np.load(labels_path)[(severity - 1)*10000: severity*10000]  # shape: (N,)
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        img = self.images[idx]    # shape: (32, 32, 3)
+        label = self.labels[idx]
+
+        # Convert to float tensor
+        img_tensor = torch.from_numpy(img).float()  # shape: (32, 32, 3)
+
+        # Permute to (C, H, W) => (3, 32, 32)
+        img_tensor = img_tensor.permute(2, 0, 1)
+
+        # If there's a transform, apply it (e.g., normalization)
+        if self.transform:
+            img_tensor = self.transform(img_tensor)
+
+        return img_tensor, label
+    
+
+def get_mnist_data(batch_size=64, normalize=True, init_phase=500, train_test_split_only=False):
+    """
+    Load the MNIST dataset with optional normalization.
+
+    Args:
+        batch_size (int): Number of samples per batch in the DataLoader.
+        normalize (bool): Whether to apply standard MNIST normalization.
+
+    Returns:
+        train_loader (DataLoader): DataLoader for the training set.
+        test_loader (DataLoader): DataLoader for the test set.
+    """
+
+    if normalize:
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))  # Common MNIST mean/std
+        ])
+    else:
+        transform = transforms.Compose([
+            transforms.ToTensor()
+        ])
+
+    # Load train & test sets
+    full_train_dataset = torchvision.datasets.MNIST(
+        root='/cis/home/xhan56/code/wtr/data',       # Directory to store the MNIST data
+        train=True,
+        transform=transform
+    )
+    full_test_dataset = torchvision.datasets.MNIST(
+        root='/cis/home/xhan56/code/wtr/data',
+        train=False,
+        transform=transform
+    )
+    if train_test_split_only:
+        train_loader = DataLoader(
+            full_train_dataset,
+            batch_size=batch_size,
+            shuffle=True
+        )
+        test_loader = DataLoader(
+            full_test_dataset,
+            batch_size=batch_size,
+            shuffle=False
+        )
+        return train_loader, test_loader
+    else:
+        train_dataset, val_dataset = random_split(full_train_dataset, [50000, 10000])
+        test_split = len(full_test_dataset) - init_phase
+        test_w_est, test_dataset = random_split(full_test_dataset, [init_phase, test_split])
+
+        # Create DataLoaders
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True
+        )
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=True
+        )
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            shuffle=False
+        )
+
+        return train_loader, val_loader, test_loader, test_w_est
+
+
+def get_mnist_c_data(batch_size=64, corruption_type='fog'):
+    mnist_c_path = os.path.join('/cis/home/xhan56/code/wtr/data/mnist_c', corruption_type)
+
+    # Define a transform to convert the images to tensors
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])
+
+    mnist_c_train = NpyDataset(os.path.join(mnist_c_path, 'train_images.npy'), 
+                            os.path.join(mnist_c_path, 'train_labels.npy'), transform=transform)
+    mnist_c_test = NpyDataset(os.path.join(mnist_c_path, 'test_images.npy'), 
+                            os.path.join(mnist_c_path, 'test_labels.npy'), transform=transform)
+
+    train_loader_c = DataLoader(mnist_c_train, batch_size=batch_size, shuffle=True)
+    test_loader_c = DataLoader(mnist_c_test, batch_size=batch_size, shuffle=False)
+
+    return test_loader_c
+
+
+def get_cifar10_data(batch_size=64, init_phase=500, train_test_split_only=False):
+    transform = transforms.Compose(
+    [transforms.ToTensor(),
+     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
+
+    fulltrainset = torchvision.datasets.CIFAR10(root='./data', train=True,
+                                            download=True, transform=transform)
+    fulltestset = torchvision.datasets.CIFAR10(root='./data', train=False,
+                                        download=True, transform=transform)
+    if train_test_split_only:
+        trainloader = torch.utils.data.DataLoader(fulltrainset, batch_size=batch_size,
+                                            shuffle=True, num_workers=2)
+        testloader = torch.utils.data.DataLoader(fulltestset, batch_size=batch_size,
+                                            shuffle=False, num_workers=2)
+        return trainloader, testloader
+    else:
+        train_dataset, val_dataset = random_split(fulltrainset, [45000, 5000])
+        trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size,
+                                                shuffle=True, num_workers=2)
+        valloader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size,
+                                                shuffle=False, num_workers=2)
+        test_split = len(fulltestset) - init_phase
+        test_w_est, testset = random_split(fulltestset, [init_phase, test_split])
+        testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
+                                                shuffle=False, num_workers=2)
+        
+        return trainloader, valloader, testloader, test_w_est
+
+
+def get_cifar10_c_data(corruption_type='fog', severity=5, batch_size=64):
+    """
+    Create a DataLoader for CIFAR-10-C (single corruption or combined),
+    assuming .npy files for images and labels.
+    """
+    mean = (0.4914, 0.4822, 0.4465)
+    std  = (0.2470, 0.2435, 0.2616)
+
+    transform = transforms.Compose([
+        transforms.Normalize(mean, std)
+    ])
+
+    dataset = NpyCIFAR10CDataset(
+        images_path=f'/cis/home/xhan56/code/wtr/data/CIFAR-10-C/{corruption_type}.npy',
+        labels_path='/cis/home/xhan56/code/wtr/data/CIFAR-10-C/labels.npy',
+        severity=severity,
+        transform=transform
+    )
+
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    return loader
 
 
 def compute_w_ptest_split_active_replacement(cal_test_vals_mat, depth_max):
@@ -156,10 +363,6 @@ def compute_w_ptest_split_active_replacement_helper(cal_test_vals_mat, depth_max
             idx_include[i-1] = True
             summation += cal_test_vals_mat[-1,i]*compute_w_ptest_split_active_replacement_helper(cal_test_vals_mat[:-1,idx_include], depth_max - 1) 
         return summation
-    
-
-
-    
 
 
 def get_w(x_pca, x, dataset, bias):
