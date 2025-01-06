@@ -1,14 +1,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import pdb
 
 def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dict, errors_0_means_dict, errors_1_means_dict,\
                           errors_0_stderr_dict, errors_1_stderr_dict, p_vals_cal_dict, p_vals_test_dict, errs_window=100,\
                           change_point_index=None, title="Martingale Paths", xlabel="Observation Index", \
-                          ylabel="Simple Jumper Martingale Value", martingale="martingale_paths",dataset0_shift_type='none',\
-                          cov_shift_bias=0.0, plot_errors=False,n_seeds=1, cs_type='signed', setting=None, label_shift_bias=1,\
+                          ylabel="Simple Jumper Martingale Value", martingale="martingale_paths", dataset0_shift_type='none',\
+                          cov_shift_bias=0.0, plot_errors=False, n_seeds=1, cs_type='signed', setting=None, label_shift_bias=1,\
                           dataset1_name=None, noise_mu=0, noise_sigma=0, coverage_0_means_dict=[], coverage_0_stderr_dict=[],\
-                          pvals_0_means_dict=[], pvals_0_stderr_dict=[], methods=['none']):
+                          pvals_0_means_dict=[], pvals_0_stderr_dict=[], methods=['none'], severity=None):
     """
     Plot martingale paths for red wine and white wine groups over time, similar to Figure 2 in the paper.
     
@@ -28,13 +29,15 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dic
     
     # Plot dataset0 group with dashed lines
     for m_i, method in enumerate(methods):
-        for i, path in enumerate(dataset0_paths_dict[method]):
-            plt.plot(path, label=dataset0_name + f' {method}, fold {i+1}', linestyle='-', color=f'C{m_i}')
+        if severity is not None:
+            plt.plot(dataset0_paths_dict[method][0], label=dataset0_name + f' {method}', linestyle='-', color=f'C{m_i}')
+        else:
+            for i, path in enumerate(dataset0_paths_dict[method]):
+                plt.plot(path, label=dataset0_name + f' {method}, fold {i+1}', linestyle='-', color=f'C{m_i}')
 
 #         # Plot dataset1 group with solid lines
 #         for i, path in enumerate(dataset1_paths_dict[method]):
 #             plt.plot(path, label=f'Red Wine Fold {i+1}', linestyle='-', color=f'C{i+3}')
-
 
     # Add vertical line at the change point
     plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Change Point')
@@ -52,6 +55,8 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dic
         plt.title(f'{title}, {dataset0_shift_type} shift, \n label shift={str(label_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
     elif dataset0_shift_type == 'noise':
         plt.title(f'{title}, {dataset0_shift_type} shift, \n mean var={str(noise_mu)} {str(noise_sigma)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
+    else:
+        plt.title(f'{title}, {dataset0_shift_type} shift, \n {dataset0_name}, severity={severity}, n_seeds={n_seeds}, {cs_type} Scores', fontsize=20)
 
     plt.legend(fontsize=15)
     plt.grid(True, which="both", ls="--")
@@ -60,8 +65,6 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dic
         plt.savefig(os.getcwd() + f'/../figs/{dataset0_name}_{martingale}.pdf')
     else:
         plt.savefig(os.getcwd() + f'/../figs/sigma_' + setting + '.pdf')
-    
-    
     
     ## Plot absolute errors
     if (plot_errors):
@@ -92,6 +95,8 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dic
             plt.title(f'Error paths, {dataset0_shift_type} shift, \n label shift={str(label_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
         elif dataset0_shift_type == 'noise':
             plt.title(f'Error paths, {dataset0_shift_type} shift, \n mean var={str(noise_mu)} {str(noise_sigma)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
+        else:
+            plt.title(f'Error paths, {dataset0_shift_type} shift, \n {dataset0_name}, severity={severity}, n_seeds={n_seeds}, {cs_type} Scores', fontsize=20)
 
         plt.legend(fontsize=15)
         plt.grid(True, which="both", ls="--")
@@ -101,13 +106,9 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dic
         else:
             plt.savefig(os.getcwd() + f'/../figs/error_' + setting + '.pdf')
             
-            
-    
-    
     ## Plot coverage
     print("plotting coverage")
     plt.figure(figsize=(12, 8))
-    
     
     # Plot dataset0 group with dashed lines
     for m_i, method in enumerate(methods):
@@ -119,13 +120,15 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dic
                                  (coverage+np.array(coverage_0_stderr_dict[method][i])).flatten(), alpha=0.5,\
                              color=f'C{m_i}')
         plt.axhline(y=0.9, color='k', linestyle='--', linewidth=3, label='Target coverage')
-        
-    plt.title(f'Coverage, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
+    
+    if severity is not None:
+        plt.title(f'Coverage, {dataset0_shift_type} shift, \n {dataset0_name}, severity={severity}, n_seeds={n_seeds}, {cs_type} Scores', fontsize=20)
+    else:
+        plt.title(f'Coverage, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
     plt.ylabel(r'Coverage ($\rightarrow$)', fontsize=20)
     plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Change Point')
     plt.savefig(os.getcwd() + f'/../figs/coverage_' + setting + '.pdf')
         
-    
     
 #     ## Plot p-values sequence
 #     plt.figure(figsize=(12, 8))

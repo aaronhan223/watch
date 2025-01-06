@@ -5,6 +5,7 @@ from sklearn.linear_model import LogisticRegression
 import pdb
 from sklearn import preprocessing
 
+
 ## Ofline density ratio estimation
 def logistic_regression_weight_est(X, class_labels):
     clf = LogisticRegression(random_state=0).fit(X, class_labels)
@@ -15,8 +16,6 @@ def random_forest_weight_est(X, class_labels, ntree=100):
     rf = RandomForestClassifier(n_estimators=ntree,criterion='entropy', min_weight_fraction_leaf=0.1).fit(X, class_labels)
     rf_probs = rf.predict_proba(X)
     return rf_probs[:,1] / rf_probs[:,0]
-
-
 
 
 def online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, classifier='LR'):
@@ -85,8 +84,6 @@ def offline_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, classifier='
     
     est_probs = lik_ratio_model.predict_proba(X_cal_test_scaled)
     return est_probs[:,1] / est_probs[:,0]
-
-        
 
 
 def calculate_p_values(conformity_scores):
