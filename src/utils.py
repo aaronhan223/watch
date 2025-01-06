@@ -19,6 +19,11 @@ def get_bike_sharing_data():
     bike_sharing['count'] = bike_sharing_obj.data.targets
     return bike_sharing
 
+def get_meps_data():
+    meps_data = pd.read_csv('../datasets/meps/meps_data.txt', sep=" ", header=None)
+    meps_data = meps_data.sample(n=10000, random_state=0)
+    return meps_data
+
 def get_white_wine_data():
     white_wine = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv', sep=';')
     return white_wine
@@ -56,6 +61,7 @@ def get_communities_data():
 
 def get_superconduct_data():
     superconduct_data = pd.read_csv(os.getcwd() + '/../datasets/superconduct/train.csv')
+    superconduct_data = superconduct_data.sample(n=10000, random_state=0)
     return superconduct_data
 
 
@@ -65,6 +71,7 @@ def get_wave_data():
         names=['X1', 'X2', 'X3', 'X4', 'X5', 'X6', 'X7', 'X8', 'X9', 'X10', 'X11', 'X12', 'X13', 'X14', 'X15', 'X16', 'Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7', 'Y8', 'Y9', 'Y10', 'Y11', 'Y12', 'Y13', 'Y14', 'Y15', 'Y16', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'P10', 'P11', 'P12', 'P13', 'P14', 'P15', 'P16', 'Power_Output']
     )
     wave_data = wave_data.dropna()
+    wave_data = wave_data.sample(n=30000, random_state=0)
     return wave_data
 
 def get_1dim_synthetic_data(size=10000):
@@ -198,7 +205,6 @@ def get_w(x_pca, x, dataset, bias):
         # Previous version just passed x_red and did x_red @ [-bias,bias]
         
         return np.exp(x_red_abs_normed @ [bias])
-        
     
     
     elif(dataset == 'red_wine'):
@@ -224,8 +230,8 @@ def get_w(x_pca, x, dataset, bias):
         x_red_2 = pca_2.transform(x[:, 32:48])
         
         x_red = np.c_[x_red_1, x_red_2]
-        
-        return np.exp(x_red @ [-bias,bias])
+        x_red_scaled = (x_red - np.min(x_red, axis=0)) / (np.max(x_red, axis=0) - np.min(x_red, axis=0))
+        return np.exp(x_red_scaled @ [-bias,bias])
     
         ## For communities dataset use top 2 PCs as tilting vars
     elif (dataset in ['superconduct']):
@@ -233,15 +239,22 @@ def get_w(x_pca, x, dataset, bias):
         pca = decomposition.PCA(n_components=1)
         pca.fit(x_pca)
         x_red = pca.transform(x)
-        return np.exp(x_red @ [bias])
+        x_red_scaled = (x_red - np.min(x_red, axis=0)) / (np.max(x_red, axis=0) - np.min(x_red, axis=0))
+        return np.exp(x_red_scaled @ [bias])
     
         ## For communities dataset use top 2 PCs as tilting vars
-    elif (dataset in ['communities']):
-#         np.random.seed(5)
-        pca = decomposition.PCA(n_components=2)
-        pca.fit(x_pca)
-        x_red = pca.transform(x)
-        return np.exp(x_red @ [-bias,bias])
+    elif (dataset in ['communities', 'meps']):
+        x_sub = x[:,[0,1]] 
+        x_sub = x_sub / np.max(x[:,[0,1]])
+        return np.exp(x_sub @ [-bias,bias])
+# #         np.random.seed(5)
+#         pca = decomposition.PCA(n_components=2)
+#         pca.fit(x_pca)
+#         x_red = pca.transform(x)
+#         x_red_scaled = (x_red - np.min(x_red, axis=0)) / (np.max(x_red, axis=0) - np.min(x_red, axis=0))
+#         return np.exp(x_red_scaled @ [-bias,bias])
+    
+    
     
 
 # def wsample(wts, n, d, frac=0.1):

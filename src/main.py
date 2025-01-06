@@ -52,6 +52,7 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
     
         
     for i, (train_index, cal_index) in enumerate(folds):
+        print("fold : ", i)
         if i == 2:  # Adjust the last fold to have 1099 in training
             train_index, cal_index = train_index[:-1], cal_index
         X_train, X_cal = X[train_index], X[cal_index]
@@ -68,8 +69,10 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
                 ('scaler', StandardScaler()),  # Normalize the data
                 ('regressor', MLPRegressor(solver='lbfgs',activation='logistic', random_state=seed))
             ])
+        print("fitting model")
         model.fit(X_train, y_train)
         
+        print("model fitted")
         ## Save test set alone
         X_test_0_only = dataset0_test_0.drop(y_name, axis=1).to_numpy()
         y_test_0_only = dataset0_test_0[y_name].to_numpy()
@@ -102,8 +105,9 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
                 ## Oracle one-step likelihood ratios
                 ## np.shape(W_i) = (n_cal + T, )
                 X_full = np.concatenate((X_train, X_cal_test_0), axis = 0)
-
+                
                 W_i = get_w(x_pca=X_train, x=X_cal_test_0, dataset=dataset0_name, bias=cov_shift_bias) 
+                print("obtained weights")
 
                 if (method == 'batch_oracle'):
                     W_i = (W_i - min(W_i)) / (max(W_i) - min(W_i))
@@ -249,6 +253,8 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
 #     coverage_0 = []
         
     for i, score_0 in enumerate(cs_0):
+        print("cs fold : ", i)
+            
         for method in methods:
             
             if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline']):
