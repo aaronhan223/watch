@@ -164,3 +164,4 @@ cython_debug/
 data/
 figs/
 results/
+mnist_cifar_figs/

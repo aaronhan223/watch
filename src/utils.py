@@ -198,7 +198,7 @@ def get_mnist_data(batch_size=64, normalize=True, init_phase=500, train_test_spl
         test_loader = DataLoader(
             full_test_dataset,
             batch_size=batch_size,
-            shuffle=False
+            shuffle=True
         )
         return train_loader, test_loader
     else:
@@ -241,7 +241,7 @@ def get_mnist_c_data(batch_size=64, corruption_type='fog'):
                             os.path.join(mnist_c_path, 'test_labels.npy'), transform=transform)
 
     train_loader_c = DataLoader(mnist_c_train, batch_size=batch_size, shuffle=True)
-    test_loader_c = DataLoader(mnist_c_test, batch_size=batch_size, shuffle=False)
+    test_loader_c = DataLoader(mnist_c_test, batch_size=batch_size, shuffle=True)
 
     return test_loader_c
 
@@ -252,14 +252,14 @@ def get_cifar10_data(batch_size=64, init_phase=500, train_test_split_only=False)
      transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
     fulltrainset = torchvision.datasets.CIFAR10(root='./data', train=True,
-                                            download=True, transform=transform)
+                                            download=False, transform=transform)
     fulltestset = torchvision.datasets.CIFAR10(root='./data', train=False,
-                                        download=True, transform=transform)
+                                        download=False, transform=transform)
     if train_test_split_only:
         trainloader = torch.utils.data.DataLoader(fulltrainset, batch_size=batch_size,
                                             shuffle=True, num_workers=2)
         testloader = torch.utils.data.DataLoader(fulltestset, batch_size=batch_size,
-                                            shuffle=False, num_workers=2)
+                                            shuffle=True, num_workers=2)
         return trainloader, testloader
     else:
         train_dataset, val_dataset = random_split(fulltrainset, [45000, 5000])
@@ -294,7 +294,7 @@ def get_cifar10_c_data(corruption_type='fog', severity=5, batch_size=64):
         transform=transform
     )
 
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     return loader
 
 

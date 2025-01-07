@@ -156,7 +156,7 @@ def train_and_evaluate(train_loader_0, test_loader_0, dataset0_name, loader_1, e
     # Train the model on the training set proper
     if dataset0_name == 'mnist':
         model = MLP(input_size=784, hidden_size=256, num_classes=10).to(device)
-    elif dataset0_name == 'cifar':
+    elif dataset0_name == 'cifar10':
         model = MLP(input_size=3*32*32, hidden_size=1024, num_classes=10).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     test_preds, test_loss = fit(model, epochs, train_loader_0, test_loader_0, optimizer)
@@ -168,7 +168,7 @@ def train_and_evaluate(train_loader_0, test_loader_0, dataset0_name, loader_1, e
     all_losses_1 = []
     with torch.no_grad():
         for images, labels in loader_1:
-            images, labels = images.to(device), labels.to(device)
+            images, labels = images.to(device), labels.to(device).long()
             outputs = model(images)
             probabilities = torch.softmax(outputs, dim=1)
             correct_class_probs = probabilities.gather(1, labels.view(-1, 1)).squeeze()
@@ -437,7 +437,7 @@ if __name__ == "__main__":
     p_vals_cal_dict = {}
     p_vals_test_dict = {}
 
-    changepoint_index = 5000
+    changepoint_index = 0
 
     for method in methods:
         paths_dict_all[method].to_csv(f'../results/' + setting + '.csv')
@@ -457,6 +457,7 @@ if __name__ == "__main__":
 
         ## Compute average martingale values over trials
         sigmas_0_means.append(paths_all[['sigmas_0_0', 'obs_idx']].groupby('obs_idx').mean())
+        sigmas_1_means.append(paths_all[['sigmas_1_0', 'obs_idx']].groupby('obs_idx').mean())
 
         ## Compute average and stderr absolute score (residual) values over window, trials
         errors_0_means_fold = []
