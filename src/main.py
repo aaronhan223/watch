@@ -263,7 +263,6 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
             p_values_0_dict[method].append(p_vals)
             coverage_0_dict[method].append(p_vals <= 0.9)
 
-    
     ## Note: 
     for i, score_1 in enumerate(cs_1):
         for method in methods:
