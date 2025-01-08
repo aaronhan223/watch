@@ -197,7 +197,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                       sr_threshold=1e6, cu_confidence=0.99, muh_fun_name='RF', test0_size=1599/4898, \
                       dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed', \
                       label_uptick=1, verbose=False, noise_mu=0, noise_sigma=0, methods=['fixed_cal_oracle', 'none'],\
-                      depth=1,init_phase=500):
+                      depth=1,init_phase=500, num_folds=3):
     
     
     
@@ -206,7 +206,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                                                                cov_shift_bias=cov_shift_bias, seed=seed, \
                                                                label_uptick=label_uptick, noise_mu=noise_mu,\
                                                                 noise_sigma=noise_sigma)
-    X, y, folds = split_into_folds(dataset0_train, seed=seed)
+    X, y, folds = split_into_folds(dataset0_train, num_folds=num_folds, seed=seed)
         
 #     ## Add simulated measurement noise with OLS
 #     ols = LinearRegression(fit_intercept=False)  # featurization from walsh_hadamard_from_seqs has intercept
@@ -357,6 +357,7 @@ if __name__ == "__main__":
     parser.add_argument('--noise_mu', type=float, default=0.0, help="x-dependent noise mean, wine data")
     parser.add_argument('--noise_sigma', type=float, default=0.0, help="x-dependent noise variance, wine data")
     parser.add_argument('--init_phase', type=int, default=500, help="Num test pts that pre-trained density-ratio estimator has access to")
+    parser.add_argument('--num_folds', type=int, default=3, help="Num folds for CTMs and WCTMs")
 
     ## python main.py dataset muh_fun_name bias
     ## python main.py --dataset0 white_wine --dataset1 red_wine --muh_fun_name NN --d0_shift_type covariate --bias 0.53
@@ -376,7 +377,8 @@ if __name__ == "__main__":
 #     weights_to_compute = args.weights_to_compute
     methods = args.methods
     init_phase = args.init_phase
-    label_shift = args.label_shift    
+    label_shift = args.label_shift  
+    num_folds = args.num_folds
     
     ## Load datasets into dataframes
     dataset0 = eval(f'get_{dataset0_name}_data()')
@@ -426,7 +428,8 @@ if __name__ == "__main__":
             noise_sigma=args.noise_sigma,
             methods=methods,
             depth=args.depth,
-            init_phase=init_phase
+            init_phase=init_phase,
+            num_folds=num_folds
         )
         for method in methods:
             paths_dict_all[method] = pd.concat([paths_dict_all[method], paths_dict_curr[method]], ignore_index=True)
@@ -444,7 +447,7 @@ if __name__ == "__main__":
     p_vals_cal_dict = {}
     p_vals_test_dict = {}
     
-    changepoint_index = len(dataset0)*(1-test0_size)/3
+    change_point_index = len(dataset0)*(1-test0_size)/max(2,num_folds)
     
     for method in methods:
         paths_dict_all[method].to_csv(f'../results/' + setting + '.csv')
@@ -463,9 +466,10 @@ if __name__ == "__main__":
         pvals_0_stderr = []
 
         ## For each fold/separate martingale path
-        for i in range(0, 3):
+        for i in range(0, num_folds):
             ## Compute average martingale values over trials
             sigmas_0_means.append(paths_all[['sigmas_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
+            sigmas_0_stderr.append(paths_all[['sigmas_0_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
 
             ## Compute average and stderr absolute score (residual) values over window, trials
             errors_0_means_fold = []
@@ -508,6 +512,7 @@ if __name__ == "__main__":
             if (dataset1 is not None):
                 ## Compute average martingale values over trials
                 sigmas_1_means.append(paths_all_abs[['sigmas_1_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
+                sigmas_1_stderr.append(paths_all[['sigmas_1_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
 
                 ## Compute average and stderr absolute score (residual) values over window, trials
                 errors_1_means_fold = []
@@ -536,19 +541,26 @@ if __name__ == "__main__":
                 
         
         ## Plotting p-values for debugging
-        paths_cal = paths_all[paths_all['obs_idx'] < changepoint_index]
-        paths_test = paths_all[paths_all['obs_idx'] >= changepoint_index]
-
-        p_vals_cal = np.concatenate((paths_cal['pvals_0_0'], paths_cal['pvals_0_1'], paths_cal['pvals_0_2']))
-        p_vals_test = np.concatenate((paths_test['pvals_0_0'], paths_test['pvals_0_1'], paths_test['pvals_0_2']))
+        paths_cal = paths_all[paths_all['obs_idx'] < change_point_index]
+        paths_test = paths_all[paths_all['obs_idx'] >= change_point_index]
+        
+        p_vals_cal = paths_cal['pvals_0_0']
+        p_vals_test = paths_test['pvals_0_0']
+        
+        for i in range(1, num_folds):
+            p_vals_cal = np.concatenate((p_vals_cal, paths_cal[f'pvals_0_{i}']))
+            p_vals_test = np.concatenate((p_vals_test, paths_test[f'pvals_0_{i}']))
+            
         p_vals_cal_dict[method] = p_vals_cal
         p_vals_test_dict[method] = p_vals_test
     
         
     plot_martingale_paths(
         dataset0_paths_dict=sigmas_0_means_dict,
+        dataset0_paths_stderr_dict=sigmas_0_stderr_dict,
         dataset0_name=dataset0_name,
         dataset1_paths_dict=sigmas_1_means_dict, 
+        dataset1_paths_stderr_dict=sigmas_1_stderr_dict,
         dataset1_name=dataset1_name,
         errors_0_means_dict=errors_0_means_dict,
         errors_1_means_dict=errors_1_means_dict,
@@ -557,7 +569,7 @@ if __name__ == "__main__":
         p_vals_cal_dict=p_vals_cal_dict,
         p_vals_test_dict=p_vals_test_dict,
         errs_window=errs_window,
-        change_point_index=len(dataset0)*(1-test0_size)/3,
+        change_point_index=change_point_index,
         title="Average paths of Shiryaev-Roberts Procedure",
         ylabel="Shiryaev-Roberts Statistics",
         martingale="shiryaev_roberts",

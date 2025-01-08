@@ -514,12 +514,22 @@ def exponential_tilting_indices(x_pca, x, dataset, bias=1):
     return wsample(importance_weights, n, d)
 
 
-def split_into_folds(dataset0_train, seed=0):
+def split_into_folds(dataset0_train, num_folds, seed=0):
     y_name = dataset0_train.columns[-1] ## Outcome column must be last in dataframe
     X = dataset0_train.drop(y_name, axis=1).to_numpy()
     y = dataset0_train[y_name].to_numpy()
-    kf = KFold(n_splits=3, shuffle=True, random_state=seed)
-    folds = list(kf.split(X, y))
+    n = len(X)
+    all_inds = np.arange(n)
+    
+    if (num_folds == 1):
+        train_indices = np.random.choice(all_inds, int(n/2), replace=False)
+        cal_indices = np.setdiff1d(all_inds, train_indices)
+        folds = [[train_indices, cal_indices]] ## Same structure as KFold: List length 1, entry is (train_indices, cal_indices)
+        
+    else:
+        kf = KFold(n_splits=num_folds, shuffle=True, random_state=seed)
+        folds = list(kf.split(X, y))
+    
     return X, y, folds
 
 
