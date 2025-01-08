@@ -6,7 +6,7 @@ do
         --dataset0 mnist \
         --dataset1 mnist_c \
         --n_seeds 1 \
-        --cs_type probability \
+        --cs_type neg_log \
         --methods baseline \
         --schedule variable \
         --epochs 5 \

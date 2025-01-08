@@ -102,7 +102,7 @@ def evaluate(model, device, data_loader):
     return epoch_loss, epoch_acc
 
 
-def fit(model, epochs, train_loader, test_loader, optimizer):
+def fit(model, epochs, train_loader, test_loader, optimizer, setting):
     """
     Train the model on the training set.
     """
@@ -120,11 +120,11 @@ def fit(model, epochs, train_loader, test_loader, optimizer):
         # Save checkpoint if clean accuracy improves
         if clean_acc > best_clean_acc:
             best_clean_acc = clean_acc
-            torch.save(model.state_dict(), 'best_model.pth')
+            torch.save(model.state_dict(), os.getcwd() + '/../pkl_files/best_model_' + setting + '.pth')
             print("Checkpoint saved for best model with clean accuracy: {:.2f}%".format(best_clean_acc * 100))
 
     # Load the best model and perform prediction on test_loader
-    model.load_state_dict(torch.load('best_model.pth'))
+    model.load_state_dict(torch.load(os.getcwd() + '/../pkl_files/best_model_' + setting + '.pth'))
     model.eval()
     all_preds = []
     all_losses = []
@@ -144,7 +144,7 @@ def fit(model, epochs, train_loader, test_loader, optimizer):
     return np.array(all_preds), all_losses
 
 
-def train_and_evaluate(train_loader_0, test_loader_0, dataset0_name, loader_1, epochs, device, lr,
+def train_and_evaluate(train_loader_0, test_loader_0, dataset0_name, loader_1, epochs, device, lr, setting,
                        val_loader_0=None, test_w_est=None, verbose=False, methods=['baseline'], init_phase=500,
                        epsilon=1e-9):
     cs_0 = []
@@ -159,10 +159,10 @@ def train_and_evaluate(train_loader_0, test_loader_0, dataset0_name, loader_1, e
     elif dataset0_name == 'cifar10':
         model = MLP(input_size=3*32*32, hidden_size=1024, num_classes=10).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    test_preds, test_loss = fit(model, epochs, train_loader_0, test_loader_0, optimizer)
+    test_preds, test_loss = fit(model, epochs, train_loader_0, test_loader_0, optimizer, setting)
 
     # Load the best model and perform prediction on loader_1
-    model.load_state_dict(torch.load('best_model.pth'))
+    model.load_state_dict(torch.load(os.getcwd() + '/../pkl_files/best_model_' + setting + '.pth'))
     model.eval()
     all_preds_1 = []
     all_losses_1 = []
@@ -215,7 +215,7 @@ def retrain_count(conformity_score, training_schedule, sr_threshold=1e6, cu_conf
     return retrain_m, retrain_s, martingale_value, sigma, p_values
 
 
-def training_function(train_loader_0, test_loader_0, dataset0_name, loader_1, epochs, device, lr, 
+def training_function(train_loader_0, test_loader_0, dataset0_name, loader_1, epochs, device, lr, setting,
                       schedule='variable', val_loader_0=None, test_w_est=None, verbose=False, methods=['baseline'], init_phase=500):
     
     if val_loader_0 is None:
@@ -227,6 +227,7 @@ def training_function(train_loader_0, test_loader_0, dataset0_name, loader_1, ep
             epochs=epochs,
             device=device,
             lr=lr,
+            setting=setting,
             verbose=verbose,
             methods=methods
         )
@@ -402,6 +403,7 @@ if __name__ == "__main__":
                 epochs=epochs,
                 device=device,
                 lr=lr,
+                setting=setting,
                 verbose=verbose, 
                 methods=methods,
                 schedule=schedule
@@ -418,6 +420,7 @@ if __name__ == "__main__":
                 epochs=epochs,
                 device=device,
                 lr=lr,
+                setting=setting,
                 verbose=verbose, 
                 methods=methods,
                 init_phase=init_phase

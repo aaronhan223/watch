@@ -65,7 +65,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dic
     if (dataset0_shift_type == 'none'):
         plt.savefig(os.getcwd() + f'/../mnist_cifar_figs/{dataset0_name}_{martingale}.pdf')
     else:
-        plt.savefig(os.getcwd() + f'/../mnist_cifar_figs/sigma_' + setting + '.pdf')
+        plt.savefig(os.getcwd() + '/../mnist_cifar_figs/sigma_' + setting + '.pdf')
     
     ## Plot absolute errors
     if (plot_errors):
@@ -105,7 +105,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dic
         if (dataset0_shift_type == 'none'):
             plt.savefig(os.getcwd() + f'/../mnist_cifar_figs/{dataset0_name}_AbsoluteErrors.pdf')
         else:
-            plt.savefig(os.getcwd() + f'/../mnist_cifar_figs/error_' + setting + '.pdf')
+            plt.savefig(os.getcwd() + '/../mnist_cifar_figs/error_' + setting + '.pdf')
             
     ## Plot coverage
     print("plotting coverage")
@@ -128,7 +128,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dic
         plt.title(f'Coverage, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
     plt.ylabel(r'Coverage ($\rightarrow$)', fontsize=20)
     plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Change Point')
-    plt.savefig(os.getcwd() + f'/../mnist_cifar_figs/coverage_' + setting + '.pdf')
+    plt.savefig(os.getcwd() + '/../mnist_cifar_figs/coverage_' + setting + '.pdf')
         
     
 #     ## Plot p-values sequence
@@ -160,4 +160,4 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dic
         ax[1].set_title('test p-values')
     
     fig.suptitle(f'p-values histogram for {methods} weights over {n_seeds} trials')
-    fig.savefig(os.getcwd() + f'/../mnist_cifar_figs/p_vals_hist_' + setting + '.pdf')
+    fig.savefig(os.getcwd() + '/../mnist_cifar_figs/p_vals_hist_' + setting + '.pdf')
