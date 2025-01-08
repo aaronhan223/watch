@@ -34,11 +34,9 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
 #         martingale_stderrs = np.array(dataset0_paths_stderr_dict[method][0])
             
         if severity is not None:
-            
-            plt.plot(martingale_means, label=dataset0_name + f' {method}', linestyle='-', color=f'C{m_i}')
-            plt.fill_between(np.arange(martingale_means), \
-                                 (martingale_means-martingale_stderrs).flatten(), \
-                                 (martingale_means+martingale_stderrs).flatten(), alpha=0.5, color=f'C{m_i}')
+
+            plt.plot(dataset0_paths_dict[method][0], label=dataset0_name + f' {method}', linestyle='-', color=f'C{m_i}')
+            plt.plot(dataset1_paths_dict[method][0], label=dataset1_name + f' {method}', linestyle='-', color=f'C{m_i+1}')
 
         else:
             for i, path in enumerate(dataset0_paths_dict[method]):
@@ -55,7 +53,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
 
     # Add vertical line at the change point
     plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Change Point')
-    plt.axhline(y=10**6, color='red', linestyle='--', label='Alarm threshold')
+    plt.axhline(y=10**4, color='red', linestyle='--', label='Alarm threshold')
 
     plt.yscale('log')  # Use logarithmic scale for the y-axis
     plt.xlabel(xlabel, fontsize=24)
@@ -76,9 +74,9 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
     plt.grid(True, which="both", ls="--")
     
     if (dataset0_shift_type == 'none'):
-        plt.savefig(os.getcwd() + f'/../figs/{dataset0_name}_{martingale}.pdf')
+        plt.savefig(os.getcwd() + f'/../mnist_cifar_figs/{dataset0_name}_{martingale}.pdf')
     else:
-        plt.savefig(os.getcwd() + f'/../figs/sigma_' + setting + '.pdf')
+        plt.savefig(os.getcwd() + '/../mnist_cifar_figs/sigma_' + setting + '.pdf')
     
     ## Plot absolute errors
     if (plot_errors):
@@ -116,9 +114,9 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
         plt.grid(True, which="both", ls="--")
     
         if (dataset0_shift_type == 'none'):
-            plt.savefig(os.getcwd() + f'/../figs/{dataset0_name}_AbsoluteErrors.pdf')
+            plt.savefig(os.getcwd() + f'/../mnist_cifar_figs/{dataset0_name}_AbsoluteErrors.pdf')
         else:
-            plt.savefig(os.getcwd() + f'/../figs/error_' + setting + '.pdf')
+            plt.savefig(os.getcwd() + '/../mnist_cifar_figs/error_' + setting + '.pdf')
             
     ## Plot coverage
     print("plotting coverage")
@@ -141,7 +139,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
         plt.title(f'Coverage, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=20)
     plt.ylabel(r'Coverage ($\rightarrow$)', fontsize=20)
     plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Change Point')
-    plt.savefig(os.getcwd() + f'/../figs/coverage_' + setting + '.pdf')
+    plt.savefig(os.getcwd() + '/../mnist_cifar_figs/coverage_' + setting + '.pdf')
         
     
 #     ## Plot p-values sequence
@@ -173,4 +171,4 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
         ax[1].set_title('test p-values')
     
     fig.suptitle(f'p-values histogram for {methods} weights over {n_seeds} trials')
-    fig.savefig(os.getcwd() + f'/../figs/p_vals_hist_' + setting + '.pdf')
+    fig.savefig(os.getcwd() + '/../mnist_cifar_figs/p_vals_hist_' + setting + '.pdf')

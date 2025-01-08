@@ -47,7 +47,6 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
     ## Test points used in eval are all those not used for density-ratio estimation
     dataset0_test_0 = dataset0_test_0.iloc[init_phase:]
     
-
     for i, (train_index, cal_index) in enumerate(folds):
         print("fold : ", i)
         if i == 2:  # Adjust the last fold to have 1099 in training
@@ -270,7 +269,6 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
             p_values_0_dict[method].append(p_vals)
             coverage_0_dict[method].append(p_vals <= 0.9)
 
-    
     ## Note: 
     for i, score_1 in enumerate(cs_1):
         for method in methods:
