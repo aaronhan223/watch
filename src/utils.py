@@ -162,7 +162,67 @@ class NpyCIFAR10CDataset(Dataset):
         return img_tensor, label
     
 
-def get_mnist_data(batch_size=64, normalize=True, init_phase=500, train_test_split_only=False):
+class MixtureDataset(Dataset):
+    """
+    A dataset that returns a mixture of clean MNIST/CIFAR-10 and corrupted MNIST/CIFAR-10 samples.
+    Each time you request an item, it randomly decides whether to return
+    from the corrupted set or from the clean set.
+
+    Args:
+        clean_dataset (Dataset): A PyTorch dataset for standard MNIST/CIFAR-10.
+        corrupted_dataset (Dataset): A PyTorch dataset for MNIST-C/CIFAR-10-C (or any corrupted version).
+        mixture_ratio (float): Probability of drawing a corrupted sample (0.0 to 1.0).
+        total_size (int, optional): How many total samples to emulate in this mixture.
+            If None, defaults to the maximum size of the two input datasets.
+        transform (callable, optional): An optional transform to apply on the image.
+    """
+    def __init__(self, 
+                 clean_dataset, 
+                 corrupted_dataset,
+                 dataset_name, 
+                 mixture_ratio=0.5, 
+                 total_size=None,
+                 transform=None):
+        super().__init__()
+        self.clean_dataset = clean_dataset
+        self.corrupted_dataset = corrupted_dataset
+        self.mixture_ratio = mixture_ratio
+        self.transform = transform
+        self.dataset_name = dataset_name
+        
+        # By default, we pick the max length so that you can iterate for many samples.
+        if total_size is None:
+            self.total_size = max(len(self.clean_dataset), len(self.corrupted_dataset))
+        else:
+            self.total_size = total_size
+
+    def __len__(self):
+        return self.total_size
+
+    def __getitem__(self, idx):
+        """
+        Randomly choose either a corrupted sample or a clean sample
+        according to the mixture_ratio.
+        """
+        # Decide: do we pick corrupted or clean?
+        if np.random.rand() < self.mixture_ratio:
+            # Pick from corrupted dataset
+            img, label = self.corrupted_dataset[idx]
+        else:
+            # Pick from the clean dataset
+            img, label = self.clean_dataset[idx]
+
+        if isinstance(img, torch.Tensor):
+            img = img.numpy()
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        return img, label
+
+
+def get_mnist_data(batch_size=64, normalize=True, init_phase=500, train_val_test_split_only=False,
+                   val_set_size=10000):
     """
     Load the MNIST dataset with optional normalization.
 
@@ -191,49 +251,42 @@ def get_mnist_data(batch_size=64, normalize=True, init_phase=500, train_test_spl
         train=True,
         transform=transform
     )
+    train_dataset, val_dataset = random_split(full_train_dataset, [60000 - val_set_size, val_set_size])
     full_test_dataset = torchvision.datasets.MNIST(
         root='/cis/home/xhan56/code/wtr/data',
         train=False,
         transform=transform
     )
-    if train_test_split_only:
-        train_loader = DataLoader(
-            full_train_dataset,
-            batch_size=batch_size,
-            shuffle=True
-        )
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=True
+    )
+    if train_val_test_split_only:
         test_loader = DataLoader(
             full_test_dataset,
             batch_size=batch_size,
             shuffle=True
         )
-        return train_loader, test_loader
+        return train_loader, val_loader, test_loader
     else:
-        train_dataset, val_dataset = random_split(full_train_dataset, [50000, 10000])
         test_split = len(full_test_dataset) - init_phase
         test_w_est, test_dataset = random_split(full_test_dataset, [init_phase, test_split])
-
-        # Create DataLoaders
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=batch_size,
-            shuffle=True
-        )
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=batch_size,
-            shuffle=True
-        )
         test_loader = DataLoader(
             test_dataset,
             batch_size=batch_size,
-            shuffle=False
+            shuffle=True
         )
-
         return train_loader, val_loader, test_loader, test_w_est
 
 
-def get_mnist_c_data(batch_size=64, corruption_type='fog'):
+def get_mnist_c_data(batch_size=64, corruption_type='fog', train_val_test_split_only=False, 
+                     mixture_ratio_val=0.1, mixture_ratio_test=0.9, init_phase=500, val_set_size=10000):
     mnist_c_path = os.path.join('/cis/home/xhan56/code/wtr/data/mnist_c', corruption_type)
 
     # Define a transform to convert the images to tensors
@@ -241,69 +294,140 @@ def get_mnist_c_data(batch_size=64, corruption_type='fog'):
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
     ])
-
-    mnist_c_train = NpyDataset(os.path.join(mnist_c_path, 'train_images.npy'), 
-                            os.path.join(mnist_c_path, 'train_labels.npy'), transform=transform)
-    mnist_c_test = NpyDataset(os.path.join(mnist_c_path, 'test_images.npy'), 
+    if train_val_test_split_only:
+        mnist_c_train = NpyDataset(os.path.join(mnist_c_path, 'train_images.npy'), 
+                                os.path.join(mnist_c_path, 'train_labels.npy'), transform=transform)
+        mnist_c_test = NpyDataset(os.path.join(mnist_c_path, 'test_images.npy'), 
                             os.path.join(mnist_c_path, 'test_labels.npy'), transform=transform)
+        train_loader_c = DataLoader(mnist_c_train, batch_size=batch_size, shuffle=True)
+        test_loader_c = DataLoader(mnist_c_test, batch_size=batch_size, shuffle=True)
+        return test_loader_c
+    else:
+        full_train_dataset = torchvision.datasets.MNIST(
+            root='/cis/home/xhan56/code/wtr/data',
+            train=True,
+            transform=None
+        )
+        train_dataset, val_dataset = random_split(full_train_dataset, [60000 - val_set_size, val_set_size])
+        corrupted_dataset = NpyDataset(os.path.join(mnist_c_path, 'test_images.npy'), 
+                                os.path.join(mnist_c_path, 'test_labels.npy'))
+        mixture_val_dataset = MixtureDataset(
+            clean_dataset=val_dataset,
+            corrupted_dataset=corrupted_dataset,
+            dataset_name='mnist',
+            mixture_ratio=mixture_ratio_val,
+            total_size=len(val_dataset),
+            transform=transform
+        )
+        mixture_test_dataset = MixtureDataset(
+            clean_dataset=train_dataset,
+            corrupted_dataset=corrupted_dataset,
+            dataset_name='mnist',
+            mixture_ratio=mixture_ratio_test,
+            total_size=len(corrupted_dataset),
+            transform=transform
+        )
+        test_split = len(mixture_test_dataset) - init_phase
+        test_w_est, test_dataset = random_split(mixture_test_dataset, [init_phase, test_split])
+        val_loader_mixed = DataLoader(
+            dataset=mixture_val_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            drop_last=False
+        )
+        test_loader_mixed = DataLoader(
+            dataset=test_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            drop_last=False
+        )
+        return val_loader_mixed, test_loader_mixed, test_w_est
 
-    train_loader_c = DataLoader(mnist_c_train, batch_size=batch_size, shuffle=True)
-    test_loader_c = DataLoader(mnist_c_test, batch_size=batch_size, shuffle=True)
 
-    return test_loader_c
-
-
-def get_cifar10_data(batch_size=64, init_phase=500, train_test_split_only=False):
+def get_cifar10_data(batch_size=64, init_phase=500, train_val_test_split_only=False, val_set_size=10000):
     transform = transforms.Compose(
-    [transforms.ToTensor(),
-     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
+        [transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
     fulltrainset = torchvision.datasets.CIFAR10(root='./data', train=True,
                                             download=False, transform=transform)
     fulltestset = torchvision.datasets.CIFAR10(root='./data', train=False,
                                         download=False, transform=transform)
-    if train_test_split_only:
-        trainloader = torch.utils.data.DataLoader(fulltrainset, batch_size=batch_size,
+    train_dataset, val_dataset = random_split(fulltrainset, [50000 - val_set_size, val_set_size])
+    trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size,
                                             shuffle=True, num_workers=2)
+    valloader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size,
+                                            shuffle=True, num_workers=2)
+    if train_val_test_split_only:
         testloader = torch.utils.data.DataLoader(fulltestset, batch_size=batch_size,
                                             shuffle=True, num_workers=2)
-        return trainloader, testloader
+        return trainloader, valloader, testloader
     else:
-        train_dataset, val_dataset = random_split(fulltrainset, [45000, 5000])
-        trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size,
-                                                shuffle=True, num_workers=2)
-        valloader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size,
-                                                shuffle=False, num_workers=2)
         test_split = len(fulltestset) - init_phase
         test_w_est, testset = random_split(fulltestset, [init_phase, test_split])
         testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
-                                                shuffle=False, num_workers=2)
+                                                shuffle=True, num_workers=2)
         
         return trainloader, valloader, testloader, test_w_est
 
 
-def get_cifar10_c_data(corruption_type='fog', severity=5, batch_size=64):
+def get_cifar10_c_data(corruption_type='fog', severity=5, batch_size=64, train_val_test_split_only=False, 
+                       mixture_ratio_val=0.1, mixture_ratio_test=0.9, init_phase=500, val_set_size=10000):
     """
     Create a DataLoader for CIFAR-10-C (single corruption or combined),
     assuming .npy files for images and labels.
     """
+    transform_clean = transforms.Compose(
+        [transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
     mean = (0.4914, 0.4822, 0.4465)
     std  = (0.2470, 0.2435, 0.2616)
 
-    transform = transforms.Compose([
+    transform_corrupted = transforms.Compose([
         transforms.Normalize(mean, std)
     ])
-
-    dataset = NpyCIFAR10CDataset(
+    corrupted_dataset = NpyCIFAR10CDataset(
         images_path=f'/cis/home/xhan56/code/wtr/data/CIFAR-10-C/{corruption_type}.npy',
         labels_path='/cis/home/xhan56/code/wtr/data/CIFAR-10-C/labels.npy',
         severity=severity,
-        transform=transform
+        transform=transform_corrupted
     )
-
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    return loader
-
+    if train_val_test_split_only:
+        loader = DataLoader(corrupted_dataset, batch_size=batch_size, shuffle=True)
+        return loader
+    else:
+        fulltrainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=transform_clean)
+        train_dataset, val_dataset = random_split(fulltrainset, [50000 - val_set_size, val_set_size])
+        mixture_val_dataset = MixtureDataset(
+            clean_dataset=val_dataset,
+            corrupted_dataset=corrupted_dataset,
+            dataset_name='cifar10',
+            mixture_ratio=mixture_ratio_val,
+            total_size=len(val_dataset),
+        )
+        mixture_test_dataset = MixtureDataset(
+            clean_dataset=train_dataset,
+            corrupted_dataset=corrupted_dataset,
+            dataset_name='cifar10',
+            mixture_ratio=mixture_ratio_test,
+            total_size=len(corrupted_dataset),
+        )
+        test_split = len(mixture_test_dataset) - init_phase
+        test_w_est, test_dataset = random_split(mixture_test_dataset, [init_phase, test_split])
+        val_loader_mixed = DataLoader(
+            dataset=mixture_val_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            drop_last=False
+        )
+        test_loader_mixed = DataLoader(
+            dataset=test_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            drop_last=False
+        )
+        return val_loader_mixed, test_loader_mixed, test_w_est
+    
 
 def compute_w_ptest_split_active_replacement(cal_test_vals_mat, depth_max):
     '''
@@ -322,16 +446,13 @@ def compute_w_ptest_split_active_replacement(cal_test_vals_mat, depth_max):
         raise ValueError('Error: depth_max should be an integer >= 1. Currently, depth_max=' + str(depth_max))
       
     if (depth_max == 1):
-        ## 
         return cal_test_vals_mat[-1]
         
     n_cal_test = np.shape(cal_test_vals_mat)[1]
     adjusted_vals = deepcopy(np.array(cal_test_vals_mat[-1])).flatten()
     idx_include = np.repeat(True, n_cal_test)
-
     
     for i in range(n_cal_test):
-#         print(i)
         idx_include[i] = False
         idx_include[i-1] = True
         summation = compute_w_ptest_split_active_replacement_helper(cal_test_vals_mat[:-1,idx_include], depth_max-1)

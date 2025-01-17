@@ -15,6 +15,9 @@ do
         --init_phase 500 \
         --corruption_type $corruption \
         --severity 1 \
-        --train_test_split_only \
+        --mixture_ratio_val 0.1 \
+        --mixture_ratio_test 0.9 \
+        --val_set_size 1000 \
+        --train_val_test_split_only \
         --errs_window 1
 done
