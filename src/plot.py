@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt
 import os
 import pdb
 
-def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dict, errors_0_means_dict, errors_1_means_dict,\
+def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, dataset0_name, dataset1_paths_dict,\
+                          dataset1_paths_stderr_dict,errors_0_means_dict, errors_1_means_dict,\
                           errors_0_stderr_dict, errors_1_stderr_dict, p_vals_cal_dict, p_vals_test_dict, errs_window=100,\
                           change_point_index=None, title="Martingale Paths", xlabel="Observation Index", \
                           ylabel="Simple Jumper Martingale Value", martingale="martingale_paths", dataset0_shift_type='none',\
@@ -29,12 +30,22 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_name, dataset1_paths_dic
     
     # Plot dataset0 group with dashed lines
     for m_i, method in enumerate(methods):
+#         martingale_means = dataset0_paths_dict[method][0]
+#         martingale_stderrs = np.array(dataset0_paths_stderr_dict[method][0])
+            
         if severity is not None:
+
             plt.plot(dataset0_paths_dict[method][0], label=dataset0_name + f' {method}', linestyle='-', color=f'C{m_i}')
             plt.plot(dataset1_paths_dict[method][0], label=dataset1_name + f' {method}', linestyle='-', color=f'C{m_i+1}')
+
         else:
             for i, path in enumerate(dataset0_paths_dict[method]):
+                martingale_stderrs = np.array(dataset0_paths_stderr_dict[method][i])
+        
                 plt.plot(path, label=dataset0_name + f' {method}, fold {i+1}', linestyle='-', color=f'C{m_i}')
+                plt.fill_between(np.arange(len(path)), \
+                                 (path.to_numpy()-martingale_stderrs).flatten(), \
+                                 (path.to_numpy()+martingale_stderrs).flatten(), alpha=0.5, color=f'C{m_i}')
 
 #         # Plot dataset1 group with solid lines
 #         for i, path in enumerate(dataset1_paths_dict[method]):
