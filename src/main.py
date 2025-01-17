@@ -540,7 +540,6 @@ if __name__ == "__main__":
     change_point_index = len(dataset0)*(1-test0_size)/max(2,num_folds) + num_test_unshifted
     
     for method in methods:
-        paths_dict_all[method].to_csv(f'../results/{setting}_{method}.csv')
     
         ## Compute average and stderr values for plotting
         paths_all = paths_dict_all[method]
