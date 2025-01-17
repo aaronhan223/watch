@@ -102,7 +102,42 @@ def evaluate(model, device, data_loader):
     return epoch_loss, epoch_acc
 
 
-def fit(model, epochs, train_loader, test_loader, optimizer, setting):
+def eval_loss_prob(model, device, setting, loader_0, loader_1):
+    model.load_state_dict(torch.load(os.getcwd() + '/../pkl_files/best_model_' + setting + '.pth'))
+    model.eval()
+    all_preds = []
+    all_losses = []
+
+    with torch.no_grad():
+        # Evaluate on validation loader
+        for images, labels in loader_0:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            probabilities = torch.softmax(outputs, dim=1)
+            correct_class_probs = probabilities.gather(1, labels.view(-1, 1)).squeeze()
+            all_preds.extend(correct_class_probs.cpu().numpy())
+            
+            # Calculate cross entropy loss for each sample
+            loss = F.cross_entropy(outputs, labels, reduction='none')
+            all_losses.append(loss.cpu().numpy())
+
+        # Evaluate on test loader
+        for images, labels in loader_1:
+            images, labels = images.to(device), labels.to(device).long()
+            outputs = model(images)
+            probabilities = torch.softmax(outputs, dim=1)
+            correct_class_probs = probabilities.gather(1, labels.view(-1, 1)).squeeze()
+            all_preds.extend(correct_class_probs.cpu().numpy())
+            
+            # Calculate cross entropy loss for each sample
+            loss = F.cross_entropy(outputs, labels, reduction='none')
+            all_losses.append(loss.cpu().numpy())
+        all_losses = np.concatenate(all_losses)
+    
+    return np.array(all_preds), all_losses
+
+
+def fit(model, epochs, train_loader, val_loader_0, test_loader, optimizer, setting):
     """
     Train the model on the training set.
     """
@@ -123,30 +158,18 @@ def fit(model, epochs, train_loader, test_loader, optimizer, setting):
             torch.save(model.state_dict(), os.getcwd() + '/../pkl_files/best_model_' + setting + '.pth')
             print("Checkpoint saved for best model with clean accuracy: {:.2f}%".format(best_clean_acc * 100))
 
-    # Load the best model and perform prediction on test_loader
-    model.load_state_dict(torch.load(os.getcwd() + '/../pkl_files/best_model_' + setting + '.pth'))
-    model.eval()
-    all_preds = []
-    all_losses = []
-    with torch.no_grad():
-        for images, labels in test_loader:
-            images, labels = images.to(device), labels.to(device)
-            outputs = model(images)
-            probabilities = torch.softmax(outputs, dim=1)
-            correct_class_probs = probabilities.gather(1, labels.view(-1, 1)).squeeze()
-            all_preds.extend(correct_class_probs.cpu().numpy())
-            
-            # Calculate cross entropy loss for each sample
-            loss = F.cross_entropy(outputs, labels, reduction='none')
-            all_losses.append(loss.cpu().numpy())
-        all_losses = np.concatenate(all_losses)
-    
-    return np.array(all_preds), all_losses
 
-
-def train_and_evaluate(train_loader_0, test_loader_0, dataset0_name, loader_1, epochs, device, lr, setting,
-                       val_loader_0=None, test_w_est=None, verbose=False, methods=['baseline'], init_phase=500,
-                       epsilon=1e-9):
+def train_and_evaluate(train_loader_0, val_loader_0, test_loader_0, dataset0_name, epochs, device, lr, setting, loader_1=None,
+                       test_w_est_0=None, test_w_est_1=None, val_loader_mixed=None, test_loader_mixed=None, verbose=False, 
+                       methods=['baseline'], init_phase=500, epsilon=1e-9):
+    '''
+    baseline uniform weights:
+    - train on clean data, eval on clean data: train_loader_0 + val_loader_0 + test_loader_0
+    - train on clean data, eval on corrupted data: train_loader_0 + val_loader_0 + loader_1
+    WCTMs:
+    - train on clean data, eval on clean data: train_loader_0 + val_loader_0 + test_loader_0
+    - train on clean data, eval on corrupted data: train_loader_0 + val_loader_mixed + test_loader_mixed
+    '''
     cs_0 = []
     cs_1 = []
     W_dict = {}
@@ -159,40 +182,30 @@ def train_and_evaluate(train_loader_0, test_loader_0, dataset0_name, loader_1, e
     elif dataset0_name == 'cifar10':
         model = MLP(input_size=3*32*32, hidden_size=1024, num_classes=10).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    test_preds, test_loss = fit(model, epochs, train_loader_0, test_loader_0, optimizer, setting)
+    fit(model, epochs, train_loader_0, val_loader_0, test_loader_0, optimizer, setting)
+    clean_pred, clean_loss = eval_loss_prob(model, device, setting, val_loader_0, test_loader_0)
+    if loader_1 is not None:
+        # CTMs
+        corrupt_pred, corrupt_loss = eval_loss_prob(model, device, setting, val_loader_0, loader_1)
+    else:
+        # WCTMs
+        corrupt_pred, corrupt_loss = eval_loss_prob(model, device, setting, val_loader_mixed, test_loader_mixed)
 
-    # Load the best model and perform prediction on loader_1
-    model.load_state_dict(torch.load(os.getcwd() + '/../pkl_files/best_model_' + setting + '.pth'))
-    model.eval()
-    all_preds_1 = []
-    all_losses_1 = []
-    with torch.no_grad():
-        for images, labels in loader_1:
-            images, labels = images.to(device), labels.to(device).long()
-            outputs = model(images)
-            probabilities = torch.softmax(outputs, dim=1)
-            correct_class_probs = probabilities.gather(1, labels.view(-1, 1)).squeeze()
-            all_preds_1.extend(correct_class_probs.cpu().numpy())
-
-            loss = F.cross_entropy(outputs, labels, reduction='none')
-            all_losses_1.append(loss.cpu().numpy())
-        all_losses_1 = np.concatenate(all_losses_1)
-    corrupt_preds = np.array(all_preds_1)
-    corrupt_loss = all_losses_1
-
+    ### val + test conformity scores: cs_0 is clean val + test, cs_1 is corrupted val + test
     if cs_type == 'probability':
-        cs_0 = 1 - test_preds
-        cs_1 = 1 - corrupt_preds
+        cs_0 = 1 - clean_pred
+        cs_1 = 1 - corrupt_pred
     elif cs_type == 'neg_log':
-        cs_0 = -np.log(test_preds + epsilon)
-        cs_1 = -np.log(corrupt_preds + epsilon)
-
+        cs_0 = -np.log(clean_pred + epsilon)
+        cs_1 = -np.log(corrupt_pred + epsilon)
+    pdb.set_trace()
     #### Computing (unnormalized) weights
     # TODO: @Drew, I removed the weight computation module since it requires special design for image data
-    # the implementation below is for regular CTMs
-    # dataset1 is longer because of the extra test_w_est points
+    # the implementation above is for regular CTMs, and the cs computation for WCTMs
+    # val_loader_mixed and test_loader_mixed are validation and test set that are mixed with certain ratio of corrupted data
+    # test_w_est_0 and test_w_est_1 are test data used to initialize the density ratio estimator from clean and corrupted dataset
 
-    return cs_0, cs_1, test_loss, corrupt_loss
+    return cs_0, cs_1, clean_loss, corrupt_loss
 
 
 def retrain_count(conformity_score, training_schedule, sr_threshold=1e6, cu_confidence=0.99, W_i=None, n_cal=None, verbose=False, method='baseline'):
@@ -215,12 +228,14 @@ def retrain_count(conformity_score, training_schedule, sr_threshold=1e6, cu_conf
     return retrain_m, retrain_s, martingale_value, sigma, p_values
 
 
-def training_function(train_loader_0, test_loader_0, dataset0_name, loader_1, epochs, device, lr, setting,
-                      schedule='variable', val_loader_0=None, test_w_est=None, verbose=False, methods=['baseline'], init_phase=500):
+def training_function(train_loader_0, val_loader_0, test_loader_0, dataset0_name, epochs, device, lr, setting, loader_1=None,
+                      schedule='variable', test_w_est_0=None, test_w_est_1=None, val_loader_mixed=None, test_loader_mixed=None, 
+                      verbose=False, methods=['baseline'], init_phase=500):
     
-    if val_loader_0 is None:
+    if test_w_est_0 is None:
         cs_0, cs_1, test_loss, corrupt_loss = train_and_evaluate(
             train_loader_0=train_loader_0,
+            val_loader_0=val_loader_0,
             test_loader_0=test_loader_0,
             dataset0_name=dataset0_name,
             loader_1=loader_1,
@@ -232,19 +247,23 @@ def training_function(train_loader_0, test_loader_0, dataset0_name, loader_1, ep
             methods=methods
         )
     else:
-        _ = train_and_evaluate(
-            train_loader_0,
-            val_loader_0,
-            test_loader_0,
-            test_w_est,
-            dataset0_name,
-            loader_1,
-            epochs,
-            device,
-            lr,
-            verbose,
-            methods,
-            init_phase
+        # should return weights here
+        cs_0, cs_1, clean_loss, corrupt_loss = train_and_evaluate(
+            train_loader_0=train_loader_0,
+            val_loader_0=val_loader_0,
+            test_loader_0=test_loader_0,
+            test_w_est_0=test_w_est_0,
+            test_w_est_1=test_w_est_1,
+            val_loader_mixed=val_loader_mixed,
+            test_loader_mixed=test_loader_mixed,
+            dataset0_name=dataset0_name,
+            epochs=epochs,
+            device=device,
+            lr=lr,
+            setting=setting,
+            verbose=verbose,
+            methods=methods,
+            init_phase=init_phase
         )
 
     martingales_0_dict, martingales_1_dict = {}, {}
@@ -337,13 +356,16 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=10, help='Number of epochs to train the MLP model.')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate of MLP')
     parser.add_argument('--bs', type=int, default=64, help='Batch size for training')
-    parser.add_argument('--train_test_split_only', action='store_true', help='Only split data into train/test sets or train/validation/test sets.')
+    parser.add_argument('--train_val_test_split_only', action='store_true', help='Only split data into train/test sets or train/validation/test sets.')
     parser.add_argument('--corruption_type', type=str, default='fog', help='Type of corruption to apply to MNIST/CIFAR dataset.')
     parser.add_argument('--severity', type=int, default=5, help='Level of corruption to apply to MNIST/CIFAR dataset.')
     parser.add_argument('--init_phase', type=int, default=500, help="Num test pts that pre-trained density-ratio estimator has access to")
     parser.add_argument('--schedule', type=str, default='variable', help='Training schedule: variable or fixed.')
     parser.add_argument('--errs_window', type=int, default=50, help='Num observations to average for plotting errors.')
     parser.add_argument('--plot_errors', type=bool, default=True, help='Whether to also plot absolute errors.')
+    parser.add_argument('--mixture_ratio_val', type=float, default=0.1, help='Mixture ratio of corruption for validation set.')
+    parser.add_argument('--mixture_ratio_test', type=float, default=0.9, help='Mixture ratio of corruption for test set.')
+    parser.add_argument('--val_set_size', type=int, default=10000, help='Validation set size.')
 
     args = parser.parse_args()
     dataset0_name = args.dataset0
@@ -356,12 +378,15 @@ if __name__ == "__main__":
     epochs = args.epochs
     lr = args.lr
     bs = args.bs
-    train_test_split_only = args.train_test_split_only
+    train_val_test_split_only = args.train_val_test_split_only
     corruption_type = args.corruption_type
     severity = args.severity
     schedule = args.schedule
     errs_window = args.errs_window
     plot_errors = args.plot_errors
+    mixture_ratio_val = args.mixture_ratio_val
+    mixture_ratio_test = args.mixture_ratio_test
+    val_set_size = args.val_set_size
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     paths_dict_all = {}
@@ -369,7 +394,7 @@ if __name__ == "__main__":
         paths_dict_all[method] = pd.DataFrame()
 
     methods_all = "_".join(methods)
-    setting = '{}-{}-{}-{}-nseeds{}-epochs{}-lr{}-bs{}-severity{}-methods{}'.format(
+    setting = '{}-{}-{}-{}-nseeds{}-epochs{}-lr{}-bs{}-severity{}-methods{}-mix_val{}-mix_test{}-val_set{}'.format(
         dataset0_name,
         dataset1_name,
         corruption_type,
@@ -379,7 +404,10 @@ if __name__ == "__main__":
         lr,
         bs,
         severity,
-        methods_all
+        methods_all,
+        mixture_ratio_val,
+        mixture_ratio_test,
+        val_set_size
     )
 
     print(f"Running experiments for {n_seeds} random seeds.")
@@ -388,15 +416,20 @@ if __name__ == "__main__":
     for seed in tqdm(range(0, n_seeds)):
         set_seed(seed)
         if dataset0_name == 'mnist':
-            loaders = get_mnist_data(batch_size=bs, init_phase=init_phase, train_test_split_only=train_test_split_only)
-            loader_1 = get_mnist_c_data(batch_size=bs, corruption_type=corruption_type)
+            loaders = get_mnist_data(batch_size=bs, init_phase=init_phase, train_val_test_split_only=train_val_test_split_only, val_set_size=val_set_size)
+            loader_1 = get_mnist_c_data(batch_size=bs, corruption_type=corruption_type, train_val_test_split_only=train_val_test_split_only,
+                                        mixture_ratio_val=mixture_ratio_val, mixture_ratio_test=mixture_ratio_test, init_phase=init_phase,
+                                        val_set_size=val_set_size)
         else:
-            loaders = get_cifar10_data(batch_size=bs, init_phase=init_phase, train_test_split_only=train_test_split_only)
-            loader_1 = get_cifar10_c_data(batch_size=bs, corruption_type=corruption_type, severity=severity)
-        if train_test_split_only:
-            train_loader_0, test_loader_0 = loaders
+            loaders = get_cifar10_data(batch_size=bs, init_phase=init_phase, train_val_test_split_only=train_val_test_split_only, val_set_size=val_set_size)
+            loader_1 = get_cifar10_c_data(batch_size=bs, corruption_type=corruption_type, severity=severity, 
+                                          train_val_test_split_only=train_val_test_split_only, mixture_ratio_val=mixture_ratio_val, 
+                                          mixture_ratio_test=mixture_ratio_test, init_phase=init_phase, val_set_size=val_set_size)
+        if train_val_test_split_only:
+            train_loader_0, val_loader_0, test_loader_0 = loaders
             paths_dict_curr = training_function(
                 train_loader_0=train_loader_0, 
+                val_loader_0=val_loader_0,
                 test_loader_0=test_loader_0, 
                 dataset0_name=dataset0_name, 
                 loader_1=loader_1,
@@ -409,14 +442,17 @@ if __name__ == "__main__":
                 schedule=schedule
             )
         else:
-            train_loader_0, val_loader_0, test_loader_0, test_w_est = loaders
+            train_loader_0, val_loader_0, test_loader_0, test_w_est_0 = loaders
+            val_loader_mixed, test_loader_mixed, test_w_est_1 = loader_1
             paths_dict_curr = training_function(
                 train_loader_0=train_loader_0, 
                 val_loader_0=val_loader_0,
                 test_loader_0=test_loader_0, 
-                test_w_est=test_w_est,
+                test_w_est_0=test_w_est_0,
+                val_loader_mixed=val_loader_mixed,
+                test_loader_mixed=test_loader_mixed,
+                test_w_est_1=test_w_est_1,
                 dataset0_name=dataset0_name, 
-                loader_1=loader_1,
                 epochs=epochs,
                 device=device,
                 lr=lr,
@@ -440,7 +476,7 @@ if __name__ == "__main__":
     p_vals_cal_dict = {}
     p_vals_test_dict = {}
 
-    changepoint_index = 0
+    changepoint_index = val_set_size
 
     for method in methods:
         paths_dict_all[method].to_csv(f'../results/' + setting + '.csv')
