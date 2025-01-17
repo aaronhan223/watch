@@ -19,13 +19,15 @@ def random_forest_weight_est(X, class_labels, ntree=100):
     return rf_probs[:,1] / rf_probs[:,0]
 
 
-def online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, classifier='LR'):
+def online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, adapt_start=None, classifier='LR'):
     
+        
     n_cal = len(X_cal)
     init_phase = len(X_test_w_est)
     n_test = len(X_test_0_only)
+    T = len(X_test_0_only) + n_cal - adapt_start
     
-    W_i = np.zeros((n_test, n_cal + n_test))
+    W_i = np.zeros((T, adapt_start + T))
     
     if (classifier=='LR'):
         lik_ratio_model = LogisticRegression(warm_start=True)
@@ -40,13 +42,20 @@ def online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, classifier='L
     X_all_scaled = scaler.transform(X_all)
     X_cal_test_scaled = np.concatenate((X_all_scaled[0:n_cal], X_all_scaled[-n_test:]), axis=0)
     
-    class_labels_all = np.concatenate((np.zeros(n_cal), np.ones(init_phase + n_test)), axis=0)
-    idx_include = np.concatenate((np.repeat(True, n_cal + init_phase), np.repeat(False, n_test)), axis=0)
+    if (adapt_start is None):
+        ## Begin adaptive at deployment time, ie first test point after calibration set
+        class_labels_all = np.concatenate((np.zeros(n_cal), np.ones(init_phase + n_test)), axis=0)
+    else:
+        ## Begin adapting at 'adapt_start' (>n_cal), an estimated X-changepoint
+        
+        class_labels_all = np.concatenate((np.zeros(adapt_start), np.ones(init_phase + T)), axis=0)
+        
+    idx_include = np.concatenate((np.repeat(True, adapt_start + init_phase), np.repeat(False, T)), axis=0)
         
         
     ## t=0 : Offline initialization phase (but set warm_start=True)
     ## t>0 : Online adaptation phase
-    for t in range(0, n_test):
+    for t in range(0, T):
         
         lik_ratio_model.fit(X_all_scaled[idx_include], class_labels_all[idx_include])
         
@@ -54,8 +63,7 @@ def online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, classifier='L
         W_i[t] = est_probs[:,1] / est_probs[:,0]
 #         print(f'W_i[{t}][-10:] : ', W_i[t][-10:])
         
-        idx_include[n_cal + init_phase + t] = True
-    
+        idx_include[adapt_start + init_phase + t] = True
     
     return W_i
 
@@ -87,6 +95,7 @@ def offline_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, classifier='
     return est_probs[:,1] / est_probs[:,0]
 
 
+
 def calculate_p_values(conformity_scores):
     """
     Calculate the conformal p-values from conformity scores.
@@ -99,43 +108,105 @@ def calculate_p_values(conformity_scores):
     return p_values
 
 
+
+def calculate_p_values_and_quantiles(conformity_scores, alpha, cs_type='abs'):
+    """
+    Calculate the conformal p-values from conformity scores.
+    """
+    n = len(conformity_scores)
+    q_lower = np.zeros(n)
+    q_upper = np.zeros(n)
+    
+    ## Quantiles: Each ith quantile is computed before labels observed, with conservative validity
+    if (cs_type != 'signed'):
+        conformity_scores_inf = np.concatenate((conformity_scores, [np.inf])) ## inf in place of test pt cs for conservativeness
+        idx_include_inf = np.concatenate((np.repeat(False, n), [True]), axis=0) ## indicies to include
+        
+        for i in range(n):
+            ## For each i, q_upper[i] := quantile(conformity_scores[:i] \cup inf, 1-alpha)
+                        ## q_lower[i] := -q_upper[i]
+            q_upper[i] = np.quantile(conformity_scores_inf[idx_include_inf], 1-alpha)
+            idx_include_inf[i] = True
+        q_lower = - q_upper
+        
+    else:
+        ## Intervals for signed scores computed by (alpha/2) lower q, (1-alpha/2) upper q
+        conformity_scores_inf = np.concatenate((conformity_scores, [np.inf]))
+        conformity_scores_neg_inf = np.concatenate((conformity_scores, [-np.inf]))
+        idx_include_inf = np.concatenate((np.repeat(False, n), [True]), axis=0) ## indicies to include
+        
+        for i in range(n):
+            ## For each i, q_upper[i] := quantile(conformity_scores[:i] \cup inf, 1-alpha/2)
+                        ## q_lower[i] := quantile(conformity_scores[:i] \cup -inf, alpha/2)
+            q_upper[i] = np.quantile(conformity_scores_inf[idx_include_inf], 1-alpha/2)
+            q_upper[i] = np.quantile(conformity_scores_neg_inf[idx_include_inf], alpha/2)
+            idx_include_inf[i] = True
+
+    
+    ## P-values: Each ith p-value is computed after labels observed, breaking ties randomly for exact validity
+    p_values = calculate_p_values(conformity_scores)
+    
+    ## Replace nan with appropriate inf values
+    np.nan_to_num(q_lower, copy=False, nan=-np.inf, neginf=-np.inf)
+    np.nan_to_num(q_upper, copy=False, nan=np.inf, posinf=np.inf)
+        
+    return p_values , q_lower, q_upper
+
+
+
+
 ## Note: This is for calculating the weighted p-values once the normalized weights have already been calculated
-def calculate_weighted_p_values(conformity_scores, W_i, n_cal, method='fixed_cal_oracle', depth=1):
+def calculate_weighted_p_values_and_quantiles(conformity_scores, W_i, adapt_start, alpha, cs_type='abs', method='fixed_cal', depth=1, conservative_p=False):
     """
     Calculate the weighted conformal p-values from conformity scores and given normalized weights 
     (i.e., enforce np.sum(normalized_weights) = 1).
     
-    W_i : List of likelihood ratio weight est. arrays, each t-th array is length (n_cal+t)
+    W_i : List of likelihood ratio weight est. arrays, each t-th array is length (adapt_start+t)
+    adapt_start : Index of first point that is assumed part of test distribution rather than cal. If method != 'fixed_cal_dyn', 
+                  then  adapt_start==n_cal
     """
-    init_phase = 0
-    wp_values = np.zeros(len(conformity_scores))
+    n = len(conformity_scores)
+    wp_values = np.zeros(n) ## p-values calculated with weighted conformity scores
+    wq_lower = np.zeros(n) ## lower weighted quantiles
+    wq_upper = np.zeros(n) ## upper weighted quantiles
+            
+    ## For 0:adapt_start, compute as standard p-values and quantiles
+    wp_values[0:adapt_start], wq_lower[0:adapt_start], wq_upper[0:adapt_start] = \
+                                        calculate_p_values_and_quantiles(conformity_scores[0:adapt_start], alpha, cs_type) 
     
-    
-    ## p-values for original calibration set calculated as before (REVISIT THIS LINE)
-    wp_values[0:(n_cal+init_phase)] = calculate_p_values(conformity_scores[0:(n_cal+init_phase)]) 
+    ## For computing (conservative) weighted quantiles, append infinity (which takes place of test pt score)
+    conformity_scores_inf = np.concatenate((conformity_scores, [np.inf]))
+    if (cs_type == 'signed'):
+        conformity_scores_neg_inf = np.concatenate((conformity_scores, [-np.inf])) 
         
-    if method in ['fixed_cal', 'fixed_cal_oracle', 'sliding_window', 'fixed_cal_offline']:
+    if method in ['fixed_cal', 'fixed_cal_oracle', 'sliding_window', 'fixed_cal_offline', 'fixed_cal_dyn']:
 
         if method == 'fixed_cal':
             assert depth == 1, "Estimation depth must be 1."
         elif method == 'sliding_window':
             assert depth > 1, "Estimation depth must be greater than 1."
 
-        T = len(conformity_scores) - n_cal ## Number of total test observations
-        idx_include = np.concatenate((np.repeat(True, n_cal), np.repeat(False, T)), axis=0) ## indicies to include
+        T = len(conformity_scores) - adapt_start ## Number of total test observations
+        ## indices to include in computing weighted p-values
+        idx_include = np.concatenate((np.repeat(True, adapt_start), np.repeat(False, T)), axis=0) 
+        
+        ## indices to include in computing weighted quantiles, where last entry includes np.inf
+        idx_include_inf = np.concatenate((np.repeat(True, adapt_start), np.repeat(False, T), [True]), axis=0) 
+
         
         ## Note: in loop here, t_ := t-1 for zero-indexing
         for t_ in range(0, T):
             
-            ## idx_include implements indices for 'fixed cal' ie, comparing to [0:n_cal] \cup n_cal + t_ 
-            idx_include[n_cal+t_] = True ## Move to curr test point
+            ## idx_include implements indices for 'fixed cal' ie, comparing to [0:adapt_start] \cup adapt_start + t_ 
+            idx_include[adapt_start+t_] = True ## Move to curr test point
             if (t_ > depth - 1):
-                idx_include[n_cal+t_-depth] = False ## Exclude most recent "depth" number of test point again (except at start, is a cal point)
+                idx_include[adapt_start+t_-depth] = False ## Exclude most recent "depth" number of test point again (except at start, is a cal point)
             
             ## Subset conformity scores and weights based on idx_include
             conformity_scores_t = conformity_scores[idx_include]
             
             if (method in ['fixed_cal_oracle', 'fixed_cal_offline']):
+                ## 
                 W_i_t = W_i[idx_include]
             else:
                 W_i_t = W_i[t_][idx_include]
@@ -143,30 +214,61 @@ def calculate_weighted_p_values(conformity_scores, W_i, n_cal, method='fixed_cal
             ## Normalize weights on subset of weights
             normalized_weights_t = W_i_t / np.sum(W_i_t)
             
+            ## Calculate weighted quantiles
+            if (cs_type != 'signed'):
+                wq_upper[adapt_start+t_] = weighted_quantile(conformity_scores_inf[idx_include_inf], normalized_weights_t, \
+                                                             1-alpha)
+                wq_lower[adapt_start+t_] = - wq_upper[adapt_start+t_]
+            else:
+                ## Intervals for signed scores computed by (alpha/2) lower q, (1-alpha/2) upper q
+                wq_upper[adapt_start+t_] = weighted_quantile(conformity_scores_inf[idx_include_inf], normalized_weights_t, \
+                                                             1-alpha/2)
+                wq_lower[adapt_start+t_] = weighted_quantile(conformity_scores_neg_inf[idx_include_inf], normalized_weights_t,\
+                                                             alpha/2)
+#             idx_include_inf[adapt_start+t_] = True
+            
             ## Calculate weighted p-values
 #             test_pt_weight = np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
-            wp_values[n_cal+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
+#             conservative_p=True
+            
+#             if (conservative_p):
+#                 ## Exact p-values with uniform-randomization to break ties
+#                 wp_values[adapt_start+t_] = np.sum(normalized_weights_t[conformity_scores_t <= conformity_scores_t[-1]])
+            
+#             else:
+#                 ## Exact p-values with uniform-randomization to break ties
+    
+            ## 
+            if (np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]]) < alpha):
+                ## If no more than (relative) weight 'alpha' put on test point score, compute exact (randomized) p-values:
+                wp_values[adapt_start+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
                             np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
+            else:
+                ## Else: over (relative) weight 'alpha' put on test pt score, compute conservative (and deterministic) p-values:
+                print("Using conservative p-values : ", t_)
+                wp_values[adapt_start+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]])
+    
+            
 
     elif (method in ['one_step_oracle', 'one_step_est', 'batch_oracle', 'multistep_oracle']):
         
-        T = len(conformity_scores) - n_cal ## Number of total test observations
+        T = len(conformity_scores) - adapt_start ## Number of total test observations
         
         ## Note: in loop here, t_ := t-1 for zero-indexing
             ## Note: Previously this loop started at init_phase
         for t_ in range(0, T):
             
             ## Subset conformity scores and weights based on idx_include
-            conformity_scores_t = conformity_scores[:(n_cal+t_+1)]
+            conformity_scores_t = conformity_scores[:(adapt_start+t_+1)]
             
             if (method in ['one_step_est', 'batch_oracle']):
-                W_i_t = W_i[t_][:(n_cal+t_+1)]
+                W_i_t = W_i[t_][:(adapt_start+t_+1)]
                 
             elif (method == 'one_step_oracle'):
-                W_i_t = W_i[:(n_cal+t_+1)]
+                W_i_t = W_i[:(adapt_start+t_+1)]
                 
             elif (method == 'multistep_oracle'):
-                w_mat = np.matrix(W_i[-(t_+2):,:(n_cal+t_+1)])
+                w_mat = np.matrix(W_i[-(t_+2):,:(adapt_start+t_+1)])
                 
                 W_i_t = compute_w_ptest_split_active_replacement(w_mat, depth_max=2)
             
@@ -175,7 +277,7 @@ def calculate_weighted_p_values(conformity_scores, W_i, n_cal, method='fixed_cal
             
                         
             ## Calculate weighted p-values
-            wp_values[n_cal+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
+            wp_values[adapt_start+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
                             np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
            
                 
@@ -183,7 +285,11 @@ def calculate_weighted_p_values(conformity_scores, W_i, n_cal, method='fixed_cal
     else:
         raise Exception("Not implemented")
         
-    return wp_values
+    ## Replace nan with appropriate inf values
+    np.nan_to_num(wq_lower, copy=False, nan=-np.inf, neginf=-np.inf)
+    np.nan_to_num(wq_upper, copy=False, nan=np.inf, posinf=np.inf)
+        
+    return wp_values, wq_lower, wq_upper
 
 
 
