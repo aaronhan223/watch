@@ -60,7 +60,6 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
             else:
                 for i, path in enumerate(paths_0_dict[method]):
                     martingale_stderrs = np.array(paths_0_stderr_dict[method][i])
-                    print("martingale_stderrs : ", martingale_stderrs[-10:])
 
                     plt.plot(path, label=dataset0_name + f' {method}, fold {i+1}', linestyle='-', color=f'C{m_i}')
                     plt.fill_between(np.arange(len(path)), \
@@ -196,9 +195,10 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
         plt.grid(True, which="both", ls="--")
     
         if (dataset0_shift_type == 'none'):
-            plt.savefig(os.getcwd() + f'/../{plot_image_data}/{dataset0_name}_AbsoluteErrors.pdf')
+            plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{dataset0_name}_AbsoluteErrors.pdf')
         else:
-            plt.savefig(os.getcwd() + f'/../{plot_image_data}/error_{setting}.pdf')
+            plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/error_{setting}.pdf')
+            
             
     ## Plot coverage
     print("plotting coverage")
