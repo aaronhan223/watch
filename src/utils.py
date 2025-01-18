@@ -26,7 +26,7 @@ def get_bike_sharing_data():
 
 def get_meps_data():
     meps_data = pd.read_csv('../datasets/meps/meps_data.txt', sep=" ", header=None)
-    meps_data = meps_data.sample(n=10000, random_state=0)
+#     meps_data = meps_data.sample(n=10000, random_state=0)
     return meps_data
 
 def get_white_wine_data():
@@ -66,7 +66,7 @@ def get_communities_data():
 
 def get_superconduct_data():
     superconduct_data = pd.read_csv(os.getcwd() + '/../datasets/superconduct/train.csv')
-    superconduct_data = superconduct_data.sample(n=10000, random_state=0)
+#     superconduct_data = superconduct_data.sample(n=10000, random_state=0)
     return superconduct_data
 
 def get_wave_data():
@@ -567,10 +567,10 @@ def get_w(x_pca, x, dataset, bias):
         return np.exp(x_red_scaled @ [bias])
     
         ## For communities dataset use top 2 PCs as tilting vars
-    elif (dataset in ['communities', 'meps']):
-        x_sub = x[:,[0,1]] 
-        x_sub = x_sub / np.max(x[:,[0,1]])
-        return np.exp(x_sub @ [-bias,bias])
+    elif (dataset in ['communities', 'meps']): #, 'meps'
+        x_sub = x[:,[0,1,2]] ## 0:=AGE53X (age), 1:= EDUCYR (yrs education), 2:= HIDEG (yrs education)
+        x_sub = x_sub / np.max(x[:,[0,1,2]])
+        return np.exp(x_sub @ [-bias,bias,bias])
 # #         np.random.seed(5)
 #         pca = decomposition.PCA(n_components=2)
 #         pca.fit(x_pca)
@@ -663,30 +663,37 @@ def split_and_shift_dataset0(
     label_uptick=1,
     seed=0,
     noise_mu=0,
-    noise_sigma=0
+    noise_sigma=0,
+    num_test_unshifted=500
 ):
     
     dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
+    dataset0_test_0_unshifted_idx = np.arange(num_test_unshifted) ## indices of unshifted test points (before changepoint)
+    dataset0_test_0_post_change = dataset0_test_0.iloc[num_test_unshifted:] ## test candiate pts excluding unshifted idx
     
 
     if (dataset0_shift_type == 'none'):
         ## No shift within dataset0    
         return dataset0_train, dataset0_test_0
     
+    
     elif (dataset0_shift_type == 'covariate'):
         ## Covariate shift within dataset0
-        dataset0_test_0 = dataset0_test_0.reset_index(drop=True)
+        
+        dataset0_test_0_post_change = dataset0_test_0_post_change.reset_index(drop=True)
         
         dataset0_train_copy = dataset0_train.copy()
-        
         X_train = dataset0_train_copy.iloc[:, :-1].values
-        dataset0_test_0_copy = dataset0_test_0.copy()
-        X_test_0 = dataset0_test_0_copy.iloc[:, :-1].values
+        dataset0_test_0_post_change = dataset0_test_0_post_change.copy()
+        X_test_0 = dataset0_test_0_post_change.iloc[:, :-1].values
         
-        dataset0_test_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
+        ## Get indices of biased test samples post changepoint (indices relative to dataset0_test_0 by adding num_test_unshifted)
+        dataset0_test_0_biased_idx = num_test_unshifted + exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
         
+        dataset0_test_0_idx = np.concatenate((dataset0_test_0_unshifted_idx, dataset0_test_0_biased_idx))
         
-        return dataset0_train, dataset0_test_0.iloc[dataset0_test_0_biased_idx]
+        return dataset0_train, dataset0_test_0.iloc[dataset0_test_0_idx]
+    
     
     elif (dataset0_shift_type == 'label'):
         ## Label shift within dataset0
@@ -708,7 +715,7 @@ def split_and_shift_dataset0(
         elif 'superconduct' in dataset0_name:
             ea_threshold = dataset0_test_0['mean_ElectronAffinity'].quantile(0.75)
             # Increase critical_temp by 10% for materials where oxygen content is above the threshold
-            dataset0_test_0.loc[dataset0_test_0['mean_ElectronAffinity'] > ea_threshold, 'critical_temp'] *= 1.1
+            dataset0_test_0.loc[dataset0_test_0['mean_ElectronAffinity'] > ea_threshold, 'critical_temp'] *= 2 #1.1
             dataset0_test_0['critical_temp'] = dataset0_test_0['critical_temp'].clip(lower=0, upper=200)
         elif 'wave' in dataset0_name:
             x_mean_threshold = dataset0_test_0['X1'].median()
@@ -792,3 +799,53 @@ def split_and_shift_dataset0(
             dataset0_test_0['Y1'] = dataset0_test_0['Y1'].clip(lower=data_before_shift['Y1'].min(), upper=data_before_shift['Y1'].max())
 
         return dataset0_train, dataset0_test_0
+    
+    
+    
+def sort_both_by_first(v, w):
+    zipped_lists = zip(v, w)
+    sorted_zipped_lists = sorted(zipped_lists)
+    v_sorted = [element for element, _ in sorted_zipped_lists]
+    w_sorted = [element for _, element in sorted_zipped_lists]
+    
+    return [v_sorted, w_sorted]
+    
+
+def weighted_quantile(v, w_normalized, q):
+    if (len(v) != len(w_normalized)):
+        raise ValueError('Error: v is length ' + str(len(v)) + ', but w_normalized is length ' + str(len(w_normalized)))
+        
+    if (np.sum(w_normalized) > 1.01 or np.sum(w_normalized) < 0.99):
+        raise ValueError('Error: w_normalized does not add to 1')
+        
+    if (q < 0 or 1 < q):
+        raise ValueError('Error: Invalid q')
+
+    n = len(v)
+    
+    v_sorted, w_sorted = sort_both_by_first(v, w_normalized)
+    
+    cum_w_sum = w_sorted[0]
+    i = 0
+    while(cum_w_sum <= q):
+            i += 1
+            cum_w_sum += w_sorted[i]
+            
+    if (q > 0.5): ## If taking upper quantile: ceil
+        return v_sorted[i]
+            
+    elif (q < 0.5): ## Elif taking lower quantile:
+        if (i > 0):
+            return v_sorted[i-1]
+        else:
+            return v_sorted[0]
+        
+    else: ## Else taking median, return weighted average if don't have cum_w_sum == 0.5
+        if (cum_w_sum == 0.5):
+            return v_sorted[i]
+        
+        elif (i > 0):
+            return (v_sorted[i]*w_sorted[i] + v_sorted[i-1]*w_sorted[i-1]) / (w_sorted[i] + w_sorted[i-1])
+        
+        else:
+            return v_sorted[0]

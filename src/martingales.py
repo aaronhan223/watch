@@ -66,3 +66,33 @@ def simple_jumper_martingale(p_values, J=0.01, threshold=100, verbose=False):
             # return True, np.array(martingale_values)
     
     return False, np.array(martingale_values)
+
+
+def composite_jumper_martingale(p_values, threshold=100, verbose=False):
+    """
+    Implements the Simple Jumper martingale betting strategy.
+    """
+    J_list = [0.0001, 0.001, 0.01, 0.1, 1]
+    num_J = 5
+    C_minus1, C_0, C_1 = np.repeat(1/3,num_J), np.repeat(1/3,num_J), np.repeat(1/3,num_J)
+    C = 1
+    martingale_values = []
+    
+    for i, p in enumerate(p_values):
+        for J_i, J in enumerate(J_list):
+            C_minus1[J_i] = (1 - J) * C_minus1[J_i] + (J / 3) * C
+            C_0[J_i] = (1 - J) * C_0[J_i] + (J / 3) * C
+            C_1[J_i] = (1 - J) * C_1[J_i] + (J / 3) * C
+
+            C_minus1[J_i] *= (1 + (p - 0.5) * -1)
+            C_0[J_i] *= (1 + (p - 0.5) * 0)
+            C_1[J_i] *= (1 + (p - 0.5) * 1)
+
+        C = np.mean([C_minus1[J_i] + C_0[J_i] + C_1[J_i] for J_i in range(num_J)])
+        martingale_values.append(C)
+
+        if C >= threshold and verbose:
+            print(f"Alarm raised at observation {i} with martingale value={C}")
+            # return True, np.array(martingale_values)
+    
+    return False, np.array(martingale_values)
