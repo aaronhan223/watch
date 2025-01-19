@@ -167,8 +167,8 @@ def train_and_evaluate(train_loader_0, val_loader_0, test_loader_0, dataset0_nam
     - train on clean data, eval on clean data: train_loader_0 + val_loader_0 + test_loader_0
     - train on clean data, eval on corrupted data: train_loader_0 + val_loader_0 + loader_1
     WCTMs:
-    - train on clean data, eval on clean data: train_loader_0 + val_loader_0 + test_loader_0
-    - train on clean data, eval on corrupted data: train_loader_0 + val_loader_mixed + test_loader_mixed
+    - train on clean data, eval on clean data: train_loader_0 + val_loader_0 + test_w_est_0 + test_loader_0
+    - train on clean data, eval on corrupted data: train_loader_0 + val_loader_mixed + test_w_est_1 + test_loader_mixed
     '''
     cs_0 = []
     cs_1 = []
@@ -198,7 +198,7 @@ def train_and_evaluate(train_loader_0, val_loader_0, test_loader_0, dataset0_nam
     elif cs_type == 'neg_log':
         cs_0 = -np.log(clean_pred + epsilon)
         cs_1 = -np.log(corrupt_pred + epsilon)
-    pdb.set_trace()
+
     #### Computing (unnormalized) weights
     # TODO: @Drew, I removed the weight computation module since it requires special design for image data
     # the implementation above is for regular CTMs, and the cs computation for WCTMs
