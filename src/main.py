@@ -537,7 +537,7 @@ if __name__ == "__main__":
     p_vals_test_dict = {}
     
     
-    change_point_index = len(dataset0)*(1-test0_size)/max(2,num_folds) + num_test_unshifted
+    change_point_index = len(dataset0)*(1-test0_size)/max(2,num_folds)
     
     for method in methods:
     
