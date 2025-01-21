@@ -360,11 +360,14 @@ def get_mnist_c_data(batch_size=64, corruption_type='fog', train_val_test_split_
             drop_last=False
         )
         
-        ## TODO: Ideally, the val_loader_mixed and test_loader_mixed can have same function key functions as the pytorch 
-        ## DataLoader class. I.e., would be helpful if could train an MLP using either of those datasets similarly as
-        ## we do with a DataLoader object (ie, this is needed for training the density-ratio estimator). Maybe would be
-        ## easiest to do this by using ConcatDataset to combine subsets of corrupted and uncorrupted samples into a DataLoader 
-        ## object so that the total proportions are controlled by the mixture_ratio_val and mixture_ratio_test parameters.
+        ## TODO: Address bottleneck of being able to create a working cal_test_w_est_loader. 
+        ## Ie, want a DataLoader that contains mixture_val_dataset, test_w_est.
+        ## (ie, this is needed for training the density-ratio estimator).
+        
+        ## Know how to do this if MixtureDataset has the same functions as pytorch Dataset class, but not sure otherwise. 
+        ## Maybe would be easiest to do this by using ConcatDataset to combine subsets of corrupted and uncorrupted samples 
+        ## into a DataLoader  object so that the **total proportions of samples in each** are controlled by the 
+        ## mixture_ratio_val and mixture_ratio_test parameters, rather than those controlling prob of querying from each?
 
         ## Label val vs test data for like-ratio estimation
         mixture_val_dataset.dataset.targets = torch.zeros(len(mixture_val_dataset.dataset)) ## Source data
