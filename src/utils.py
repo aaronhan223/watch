@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import random_split, Dataset, DataLoader
+from torch.utils.data import random_split, Dataset, DataLoader, ConcatDataset
 import pdb
 
 
@@ -247,16 +247,19 @@ def get_mnist_data(batch_size=64, normalize=True, init_phase=500, train_val_test
 
     # Load train & test sets
     full_train_dataset = torchvision.datasets.MNIST(
-        root='/cis/home/xhan56/code/wtr/data',       # Directory to store the MNIST data
+        root='/data/drew/wtr/data',       # Directory to store the MNIST data
         train=True,
-        transform=transform
+        transform=transform #,
+        #download=True
     )
     train_dataset, val_dataset = random_split(full_train_dataset, [60000 - val_set_size, val_set_size])
     full_test_dataset = torchvision.datasets.MNIST(
-        root='/cis/home/xhan56/code/wtr/data',
+        root='/data/drew/wtr/data',
         train=False,
-        transform=transform
+        transform=transform #,
+        #download=True
     )
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -267,6 +270,7 @@ def get_mnist_data(batch_size=64, normalize=True, init_phase=500, train_val_test
         batch_size=batch_size,
         shuffle=True
     )
+    print("train_val_test_split_only ", train_val_test_split_only)
     if train_val_test_split_only:
         test_loader = DataLoader(
             full_test_dataset,
@@ -282,12 +286,25 @@ def get_mnist_data(batch_size=64, normalize=True, init_phase=500, train_val_test
             batch_size=batch_size,
             shuffle=True
         )
-        return train_loader, val_loader, test_loader, test_w_est
+        
+        ## Label val vs test data for like-ratio estimation
+        val_dataset.dataset.targets = torch.zeros(len(val_dataset.dataset)) ## Source data
+        test_w_est.dataset.targets = torch.ones(len(test_w_est.dataset)) ## Target data
+        cal_test_w_est = ConcatDataset([val_dataset, test_w_est])
+        #cal_test_w_est.transform=transform
+
+        cal_test_w_est_loader = DataLoader(
+            cal_test_w_est,
+            batch_size=batch_size,
+            shuffle=True
+        )
+        
+        return train_loader, val_loader, test_loader, cal_test_w_est_loader
 
 
 def get_mnist_c_data(batch_size=64, corruption_type='fog', train_val_test_split_only=False, 
                      mixture_ratio_val=0.1, mixture_ratio_test=0.9, init_phase=500, val_set_size=10000):
-    mnist_c_path = os.path.join('/cis/home/xhan56/code/wtr/data/mnist_c', corruption_type)
+    mnist_c_path = os.path.join('/data/drew/wtr/data/mnist_c', corruption_type)
 
     # Define a transform to convert the images to tensors
     transform = transforms.Compose([
@@ -304,9 +321,10 @@ def get_mnist_c_data(batch_size=64, corruption_type='fog', train_val_test_split_
         return test_loader_c
     else:
         full_train_dataset = torchvision.datasets.MNIST(
-            root='/cis/home/xhan56/code/wtr/data',
+            root='/data/drew/wtr/data',
             train=True,
-            transform=None
+            transform=None,
+            download=True
         )
         train_dataset, val_dataset = random_split(full_train_dataset, [60000 - val_set_size, val_set_size])
         corrupted_dataset = NpyDataset(os.path.join(mnist_c_path, 'test_images.npy'), 
@@ -341,7 +359,27 @@ def get_mnist_c_data(batch_size=64, corruption_type='fog', train_val_test_split_
             shuffle=True,
             drop_last=False
         )
-        return val_loader_mixed, test_loader_mixed, test_w_est
+        
+        ## TODO: Ideally, the val_loader_mixed and test_loader_mixed can have same function key functions as the pytorch 
+        ## DataLoader class. I.e., would be helpful if could train an MLP using either of those datasets similarly as
+        ## we do with a DataLoader object (ie, this is needed for training the density-ratio estimator). Maybe would be
+        ## easiest to do this by using ConcatDataset to combine subsets of corrupted and uncorrupted samples into a DataLoader 
+        ## object so that the total proportions are controlled by the mixture_ratio_val and mixture_ratio_test parameters.
+
+        ## Label val vs test data for like-ratio estimation
+        mixture_val_dataset.dataset.targets = torch.zeros(len(mixture_val_dataset.dataset)) ## Source data
+        test_w_est.dataset.targets = torch.ones(len(test_w_est.dataset)) ## Target data
+
+        cal_test_w_est = ConcatDataset([mixture_val_dataset, test_w_est])
+        #cal_test_w_est.transform=transform
+
+        cal_test_w_est_loader = DataLoader(
+            cal_test_w_est,
+            batch_size=batch_size,
+            shuffle=True
+        )
+
+        return val_loader_mixed, test_loader_mixed, cal_test_w_est_loader
 
 
 def get_cifar10_data(batch_size=64, init_phase=500, train_val_test_split_only=False, val_set_size=10000):
