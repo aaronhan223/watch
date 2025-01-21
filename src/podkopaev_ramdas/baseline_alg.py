@@ -1,0 +1,176 @@
+from podkopaev_ramdas.concentrations import *
+from podkopaev_ramdas.tests import *
+from torch.utils.data import DataLoader, Subset
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import pdb
+
+
+def pod_ram_mnist(model, ds_clean, ds_corrupted, tester, device, num_of_repeats=50, plot=True, 
+                  plot_batch_size=50, plot_num_of_batches=40, setting=None, corruption_type='fog'):
+    """
+    DRAFT implementation of Podkopaev & Ramdas baseline, i.e., algorithm 1 in that paper. 
+
+    Parameters
+    ----------
+    model             : The neural network model to be evaluated.
+    ds_clean          : The clean dataset.
+    ds_corrupted      : The corrupted dataset.
+    tester            : The tester object used to estimate risks.
+    device            : The device to run the model on (e.g., 'cpu' or 'cuda').
+    num_of_repeats    : Number of repetitions for the algorithm.
+    plot              : Boolean flag to indicate if the results should be plotted.
+    plot_batch_size   : Batch size for plotting.
+    plot_num_of_batches: Number of batches for plotting.
+    setting           : The setting for the experiment (used for saving plots).
+    corruption_type   : The type of corruption applied to the dataset.
+
+    Returns
+    ------- 
+    """
+    clean_lower_bounds = list()
+    corrupted_lower_bounds = list()
+    source_upper_bounds = list()
+    print('Running Podkopaev & Ramdas Algorithms...\n')
+
+    for cur_run in tqdm(range(num_of_repeats)):
+
+        # here we only use test set of clean and corrupted data
+        # both of them have 10000 samples for mnist
+        # follow the pod&ram paper, they used 1000 samples to compute conc ineq for source risk
+        # the remaining 9000 samples are used to compute conc ineq for target risk
+        # but they didn't end up with using all 9000 samples, they gradually increased the sample sizes with 50 samples step-size
+        indices = np.arange(10000)
+        np.random.shuffle(indices)
+        risk_source_indices = indices[:1000]
+        risk_target_indices = indices[1000:]
+
+        ###### Source risk upper bound
+        risk_source = Subset(ds_clean, risk_source_indices.tolist())
+        loader_source = DataLoader(risk_source, batch_size=1000, shuffle=False)
+        dataiter = iter(loader_source)
+        images, labels = next(dataiter)
+        images = images.to(device)
+        outputs = model(images).argmax(axis=1)
+        ind_loss_source = misclas_losses(labels.numpy(), outputs.cpu().numpy())
+
+        tester.estimate_risk_source(ind_loss_source)
+        source_upper_bounds += [tester.source_rejection_threshold]
+
+        ###### Target risk lower bound
+        clean_lower_bounds += [[]]
+        corrupted_lower_bounds += [[]]
+
+        ###### clean
+        np.random.shuffle(risk_target_indices)
+        risk_target_clean = Subset(ds_clean, risk_target_indices[:plot_num_of_batches * plot_batch_size].tolist())
+        loader_target_clean = DataLoader(risk_target_clean, batch_size=plot_num_of_batches * plot_batch_size, shuffle=False)
+        dataiter = iter(loader_target_clean)
+        images, labels = next(dataiter)
+        images = images.to(device)
+        outputs = model(images).argmax(axis=1)
+        all_losses_clean = misclas_losses(labels.numpy(), outputs.cpu().numpy()).astype(int)
+
+        for cur_batch in range(plot_num_of_batches):
+            cur_losses = all_losses_clean[:(cur_batch + 1) * plot_batch_size]
+            tester.estimate_risk_target(cur_losses)
+            clean_lower_bounds[cur_run] += [tester.target_risk_lower_bound]
+
+        ###### corrupted
+        np.random.shuffle(risk_target_indices)
+        risk_target_corrupted = Subset(ds_corrupted, risk_target_indices[:plot_num_of_batches * plot_batch_size].tolist())
+        loader_target_corrupted = DataLoader(risk_target_corrupted, batch_size=plot_num_of_batches * plot_batch_size, shuffle=False)
+        dataiter = iter(loader_target_corrupted)
+        images, labels = next(dataiter)
+        images = images.to(device)
+        outputs = model(images).argmax(axis=1)
+        all_losses_corrupted = misclas_losses(labels.numpy(), outputs.cpu().numpy()).astype(int)
+
+        for cur_batch in range(plot_num_of_batches):
+            cur_losses = all_losses_corrupted[:(cur_batch + 1) * plot_batch_size]
+            tester.estimate_risk_target(cur_losses)
+            corrupted_lower_bounds[cur_run] += [tester.target_risk_lower_bound]
+    
+    ### mean and std across 10 repeats
+    clean_mean = np.mean(clean_lower_bounds, axis=0)
+    corrupted_mean = np.mean(corrupted_lower_bounds, axis=0)
+    clean_std = np.std(clean_lower_bounds, axis=0)
+    corrupted_std = np.std(corrupted_lower_bounds, axis=0)
+
+    ### compute how fast it raises alarm here: (averaged) target lower bound - source upper bound
+    mask = corrupted_mean - np.mean(source_upper_bounds) > 0
+    pos_indices = np.where(mask)[0]
+    if len(pos_indices) == 0:
+        print('No alarm is raised by Podkopaev & Ramdas algorithm\n')
+    else:
+        first_positive_index = pos_indices[0]
+        print(f"Alarm raised within the range of [{first_positive_index * plot_batch_size} ~ {(first_positive_index + 1) * plot_batch_size}] samples\n")
+
+    if plot:
+        print('Plotting Podkopaev & Ramdas bounds...')
+        plot_func(plot_num_of_batches, plot_batch_size, num_of_repeats, clean_mean, clean_std, corrupted_mean, 
+                  corrupted_std, source_upper_bounds, corruption_type, setting)
+
+
+def plot_func(num_of_batches, batch_size, num_of_repeats, clean_mean, clean_std, corrupted_mean, 
+              corrupted_std, source_upper_bounds, corruption_type, setting):
+
+    l1, = plt.plot((np.arange(num_of_batches) + 1) * batch_size,
+               clean_mean,
+               color='dimgray',
+               marker='*',
+               label='Clean')
+
+    plt.fill_between((np.arange(num_of_batches) + 1) * batch_size,
+                    y1=clean_mean - 2 * clean_std / np.sqrt(num_of_repeats),
+                    y2=clean_mean + 2 * clean_std / np.sqrt(num_of_repeats),
+                    color='dimgray',
+                    alpha=0.5)
+
+    l2, = plt.plot((np.arange(num_of_batches) + 1) * batch_size,
+                corrupted_mean,
+                color='indianred',
+                marker='*',
+                label='Fog')
+
+    plt.fill_between((np.arange(num_of_batches) + 1) * batch_size,
+                    y1=corrupted_mean - 2 * corrupted_std / np.sqrt(num_of_repeats),
+                    y2=corrupted_mean + 2 * corrupted_std / np.sqrt(num_of_repeats),
+                    color='indianred',
+                    alpha=0.5)
+
+    l3, = plt.plot((np.arange(num_of_batches) + 1) * batch_size,
+                np.repeat(np.mean(source_upper_bounds), num_of_batches),
+                linestyle='dashed',
+                c='goldenrod')
+
+    plt.fill_between((np.arange(num_of_batches) + 1) * batch_size,
+                    y1=np.mean(source_upper_bounds) -
+                    2 * np.std(source_upper_bounds) / np.sqrt(num_of_repeats),
+                    y2=np.mean(source_upper_bounds) +
+                    2 * np.std(source_upper_bounds) / np.sqrt(num_of_repeats),
+                    color='goldenrod',
+                    alpha=0.5)
+
+    plt.xlabel('Number of samples from the target domain', fontsize=23)
+    plt.ylabel('Misclassification risk', fontsize=23)
+
+    # plt.legend(loc='best', markerscale=1.5, prop={'size': 20})
+
+    p = plt.plot([0.15], marker='None', linestyle='None', label='dummy-tophead')
+
+    plt.ylabel('Misclassification risk', fontsize=23)
+    plt.xlabel('Number of samples from the target domain', fontsize=23)
+
+    categories = [
+        'Rejection threshold: ' +
+        r'$\widehat{U}_S(f) + \varepsilon_{\mathrm{tol}}$',
+        r'$\textbf{LCB on the target risk for:}$ ', 'Clean', f'{corruption_type}'
+    ]
+
+    leg4 = plt.legend([l3, p, l1, l2],
+                    categories,
+                    loc=1,
+                    ncol=1,
+                    prop={'size': 18})  # Two columns, horizontal group labels
+    plt.savefig(f'/cis/home/xhan56/code/wtr/figs/{setting}.pdf', bbox_inches='tight')
