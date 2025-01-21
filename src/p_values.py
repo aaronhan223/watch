@@ -6,6 +6,10 @@ import pdb
 from sklearn import preprocessing
 from utils import *
 
+import torch.optim as optim
+import torch.nn.functional as F
+import random
+from main_mnist_cifar import set_seed, MLP, fit, eval_loss_prob, evaluate, train_one_epoch
 
 ## Ofline density ratio estimation
 def logistic_regression_weight_est(X, class_labels):
@@ -17,6 +21,28 @@ def random_forest_weight_est(X, class_labels, ntree=100):
     rf = RandomForestClassifier(n_estimators=ntree,criterion='entropy', min_weight_fraction_leaf=0.1).fit(X, class_labels)
     rf_probs = rf.predict_proba(X)
     return rf_probs[:,1] / rf_probs[:,0]
+
+
+
+
+def offline_lik_ratio_estimates_images(cal_test_w_est_loader, val_loader, test_loader, dataset0_name = 'mnist', \
+                                       classifier='MLP', device=None, setting='', epochs=10, lr=1e-3):
+
+     # Train smaller MLP model to estimate source/target probabilities
+    if dataset0_name == 'mnist':
+        model = MLP(input_size=784, hidden_size=32, num_classes=2).to(device)
+    elif dataset0_name == 'cifar10':
+        model = MLP(input_size=3*32*32, hidden_size=32, num_classes=2).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    
+    ## Fit prob classifier offline
+    fit(model, epochs, cal_test_w_est_loader, None, None, optimizer, setting, device)
+
+    ## Evaluate probability estimiates
+    cal_test_prob_est, losses = eval_loss_prob(model, device, setting, val_loader, test_loader, binary_classifier_probs = True)
+
+    return cal_test_prob_est / (1 - cal_test_prob_est)
+
 
 
 def online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, adapt_start=None, classifier='LR'):

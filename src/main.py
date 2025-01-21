@@ -514,9 +514,11 @@ if __name__ == "__main__":
         
     ## Save all results together
     results_all = paths_dict_all[methods[0]]
-    for method in methods:
+    results_all['method'] = methods[0]
+    for method in methods[1:]:
+        paths_dict_all[method]['method'] = method
         results_all = pd.concat([results_all, paths_dict_all[method]], ignore_index=True)
-    paths_dict_all[method].to_csv(f'../results/{setting}.csv')
+    results_all.to_csv(f'../results/{setting}.csv')
     
     
     ## Preparation for plotting
@@ -537,7 +539,7 @@ if __name__ == "__main__":
     p_vals_test_dict = {}
     
     
-    change_point_index = len(dataset0)*(1-test0_size)/max(2,num_folds) + num_test_unshifted
+    change_point_index = len(dataset0)*(1-test0_size)/max(2,num_folds)
     
     for method in methods:
     
