@@ -1,12 +1,13 @@
 from podkopaev_ramdas.concentrations import *
 from podkopaev_ramdas.tests import *
+from podkopaev_ramdas.set_valued_prediction import Set_valued_predictor_wrapper
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import pdb
 
 
-def pod_ram_mnist(model, ds_clean, ds_corrupted, tester, device, num_of_repeats=50, plot=True, 
+def pod_ram_mnist_cifar(model, ds_clean, ds_corrupted, tester, device, num_of_repeats=50, plot=True, 
                   plot_batch_size=50, plot_num_of_batches=40, setting=None, corruption_type='fog'):
     """
     DRAFT implementation of Podkopaev & Ramdas baseline, i.e., algorithm 1 in that paper. 
@@ -111,6 +112,114 @@ def pod_ram_mnist(model, ds_clean, ds_corrupted, tester, device, num_of_repeats=
         plot_func(plot_num_of_batches, plot_batch_size, num_of_repeats, clean_mean, clean_std, corrupted_mean, 
                   corrupted_std, source_upper_bounds, corruption_type, setting)
 
+
+def pod_ram_set_value(model, ds_clean, ds_corrupted, tester, device, num_of_repeats=50, plot=True, 
+                      plot_batch_size=50, plot_num_of_batches=40, setting=None, corruption_type='fog'):
+    """
+    DRAFT implementation of Podkopaev & Ramdas baseline, i.e., algorithm 1 in that paper. 
+
+    Parameters
+    ----------
+    model             : The neural network model to be evaluated.
+    ds_clean          : The clean dataset.
+    ds_corrupted      : The corrupted dataset.
+    tester            : The tester object used to estimate risks.
+    device            : The device to run the model on (e.g., 'cpu' or 'cuda').
+    num_of_repeats    : Number of repetitions for the algorithm.
+    plot              : Boolean flag to indicate if the results should be plotted.
+    plot_batch_size   : Batch size for plotting.
+    plot_num_of_batches: Number of batches for plotting.
+    setting           : The setting for the experiment (used for saving plots).
+    corruption_type   : The type of corruption applied to the dataset.
+
+    Returns
+    ------- 
+    """
+    clean_lower_bounds = list()
+    corrupted_lower_bounds = list()
+    source_upper_bounds = list()
+    wrap = Set_valued_predictor_wrapper()
+    wrap.base_predictor = model
+    wrap.delta = 0.05
+    wrap.alpha=0.05
+    print('Running Podkopaev & Ramdas Algorithms...\n')
+
+    for cur_run in tqdm(range(num_of_repeats)):
+
+        # learn a wrapper on the calibration set with 1000 samples
+        indices = np.arange(10000)
+        np.random.shuffle(indices)
+        cal_indices = indices[:1000]
+        risk_source_indices = indices[1000:2000]
+        risk_target_indices = indices[2000:]
+
+        X_cal = ds_clean.data[cal_indices]
+        ###### Source risk upper bound
+        risk_source = Subset(ds_clean, risk_source_indices.tolist())
+        loader_source = DataLoader(risk_source, batch_size=1000, shuffle=False)
+        dataiter = iter(loader_source)
+        images, labels = next(dataiter)
+        images = images.to(device)
+        outputs = model(images).argmax(axis=1)
+        ind_loss_source = misclas_losses(labels.numpy(), outputs.cpu().numpy())
+
+        tester.estimate_risk_source(ind_loss_source)
+        source_upper_bounds += [tester.source_rejection_threshold]
+
+        ###### Target risk lower bound
+        clean_lower_bounds += [[]]
+        corrupted_lower_bounds += [[]]
+
+        ###### clean
+        np.random.shuffle(risk_target_indices)
+        risk_target_clean = Subset(ds_clean, risk_target_indices[:plot_num_of_batches * plot_batch_size].tolist())
+        loader_target_clean = DataLoader(risk_target_clean, batch_size=plot_num_of_batches * plot_batch_size, shuffle=False)
+        dataiter = iter(loader_target_clean)
+        images, labels = next(dataiter)
+        images = images.to(device)
+        outputs = model(images).argmax(axis=1)
+        all_losses_clean = misclas_losses(labels.numpy(), outputs.cpu().numpy()).astype(int)
+
+        for cur_batch in range(plot_num_of_batches):
+            cur_losses = all_losses_clean[:(cur_batch + 1) * plot_batch_size]
+            tester.estimate_risk_target(cur_losses)
+            clean_lower_bounds[cur_run] += [tester.target_risk_lower_bound]
+
+        ###### corrupted
+        np.random.shuffle(risk_target_indices)
+        risk_target_corrupted = Subset(ds_corrupted, risk_target_indices[:plot_num_of_batches * plot_batch_size].tolist())
+        loader_target_corrupted = DataLoader(risk_target_corrupted, batch_size=plot_num_of_batches * plot_batch_size, shuffle=False)
+        dataiter = iter(loader_target_corrupted)
+        images, labels = next(dataiter)
+        images = images.to(device)
+        outputs = model(images).argmax(axis=1)
+        all_losses_corrupted = misclas_losses(labels.numpy(), outputs.cpu().numpy()).astype(int)
+
+        for cur_batch in range(plot_num_of_batches):
+            cur_losses = all_losses_corrupted[:(cur_batch + 1) * plot_batch_size]
+            tester.estimate_risk_target(cur_losses)
+            corrupted_lower_bounds[cur_run] += [tester.target_risk_lower_bound]
+    
+    ### mean and std across 10 repeats
+    clean_mean = np.mean(clean_lower_bounds, axis=0)
+    corrupted_mean = np.mean(corrupted_lower_bounds, axis=0)
+    clean_std = np.std(clean_lower_bounds, axis=0)
+    corrupted_std = np.std(corrupted_lower_bounds, axis=0)
+
+    ### compute how fast it raises alarm here: (averaged) target lower bound - source upper bound
+    mask = corrupted_mean - np.mean(source_upper_bounds) > 0
+    pos_indices = np.where(mask)[0]
+    if len(pos_indices) == 0:
+        print('No alarm is raised by Podkopaev & Ramdas algorithm\n')
+    else:
+        first_positive_index = pos_indices[0]
+        print(f"Alarm raised within the range of [{first_positive_index * plot_batch_size} ~ {(first_positive_index + 1) * plot_batch_size}] samples\n")
+
+    if plot:
+        print('Plotting Podkopaev & Ramdas bounds...')
+        plot_func(plot_num_of_batches, plot_batch_size, num_of_repeats, clean_mean, clean_std, corrupted_mean, 
+                  corrupted_std, source_upper_bounds, corruption_type, setting)
+        
 
 def plot_func(num_of_batches, batch_size, num_of_repeats, clean_mean, clean_std, corrupted_mean, 
               corrupted_std, source_upper_bounds, corruption_type, setting):
