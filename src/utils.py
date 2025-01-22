@@ -234,7 +234,7 @@ class MixtureDataset(Dataset):
         return img, label
 
 
-def get_mnist_data(batch_size=64, normalize=True, init_phase=500, train_val_test_split_only=False,
+def get_mnist_data(batch_size=64, normalize=True, init_phase=500, train_val_test_split_only=True,
                    val_set_size=10000):
     """
     Load the MNIST dataset with optional normalization.
@@ -315,7 +315,7 @@ def get_mnist_data(batch_size=64, normalize=True, init_phase=500, train_val_test
         return train_loader, val_loader, test_loader, cal_test_w_est_loader
 
 
-def get_mnist_c_data(batch_size=64, corruption_type='fog', train_val_test_split_only=False, 
+def get_mnist_c_data(batch_size=64, corruption_type='fog', train_val_test_split_only=True, 
                      mixture_ratio_val=0.1, mixture_ratio_test=0.9, init_phase=500, val_set_size=10000):
     mnist_c_path = os.path.join('/data/drew/wtr/data/mnist_c', corruption_type)
 
@@ -398,7 +398,7 @@ def get_mnist_c_data(batch_size=64, corruption_type='fog', train_val_test_split_
         return val_loader_mixed, test_loader_mixed, cal_test_w_est_loader
 
 
-def get_cifar10_data(batch_size=64, init_phase=500, train_val_test_split_only=False, val_set_size=10000):
+def get_cifar10_data(batch_size=64, init_phase=500, train_val_test_split_only=True, val_set_size=10000):
     transform = transforms.Compose(
         [transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
@@ -425,7 +425,7 @@ def get_cifar10_data(batch_size=64, init_phase=500, train_val_test_split_only=Fa
         return trainloader, valloader, testloader, test_w_est
 
 
-def get_cifar10_c_data(corruption_type='fog', severity=5, batch_size=64, train_val_test_split_only=False, 
+def get_cifar10_c_data(corruption_type='fog', severity=5, batch_size=64, train_val_test_split_only=True, 
                        mixture_ratio_val=0.1, mixture_ratio_test=0.9, init_phase=500, val_set_size=10000):
     """
     Create a DataLoader for CIFAR-10-C (single corruption or combined),
