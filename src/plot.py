@@ -232,6 +232,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
     plt.xticks(fontsize=x_tick_size)        
     plt.yticks(fontsize=y_tick_size) 
     plt.grid(True, which="both", ls="--")
+    plt.legend(fontsize=legend_size)
     plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/coverage_{setting}.pdf')
         
         
@@ -266,6 +267,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
     plt.yticks(fontsize=y_tick_size)        
     plt.xlabel(xlabel, fontsize=x_label_size)
     plt.grid(True, which="both", ls="--")
+    plt.legend(fontsize=legend_size)
     plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/widths_{setting}.pdf')
         
         
@@ -302,5 +304,6 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
     
     ax[0].tick_params(axis='both', which='major', labelsize=x_tick_size)
     ax[1].tick_params(axis='both', which='major', labelsize=x_tick_size)
+#     plt.legend(fontsize=legend_size)
     fig.suptitle(f'Histograms of p-values', fontsize=title_size)
     fig.savefig(os.getcwd() + f'/../{plot_image_data}figs/p_vals_hist_{setting}.pdf')
