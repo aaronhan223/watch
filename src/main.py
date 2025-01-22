@@ -467,7 +467,7 @@ if __name__ == "__main__":
 #     paths_all = pd.DataFrame()
     
     methods_all = "_".join(methods)
-    setting = '{}-{}-{}-shift_bias{}-label_shift{}-err_win{}-cs_type{}-nseeds{}-W{}'.format(
+    setting = '{}-{}-{}-shift_bias{}-label_shift{}-err_win{}-cs_type{}-nseeds{}-W{}-numTestUnshifted{}-test0Size{}'.format(
         dataset0_name,
         muh_fun_name,
         dataset0_shift_type,
@@ -476,7 +476,9 @@ if __name__ == "__main__":
         errs_window,
         cs_type,
         n_seeds,
-        methods_all
+        methods_all,
+        num_test_unshifted,
+        test0_size
     )
     
     print(f'Running with setting: {setting}...\n')
@@ -539,7 +541,7 @@ if __name__ == "__main__":
     p_vals_test_dict = {}
     
     
-    change_point_index = len(dataset0)*(1-test0_size)/max(2,num_folds)
+    change_point_index = len(dataset0)*(1-test0_size)/max(2,num_folds)+num_test_unshifted
     
     for method in methods:
     
