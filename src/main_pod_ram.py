@@ -1,4 +1,4 @@
-from podkopaev_ramdas.baseline_alg import pod_ram_mnist
+from podkopaev_ramdas.baseline_alg import *
 from podkopaev_ramdas.tests import Drop_tester
 from utils import *
 import argparse
@@ -106,6 +106,9 @@ def main():
     parser.add_argument('--corruption_type', type=str, default='fog', help='Type of corruption to apply to MNIST/CIFAR dataset')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--epochs', type=int, default=20, help='Maximum number of epochs to train the model')
+    parser.add_argument('--severity', type=int, default=5, help='Severity of corruption for CIFAR-10')
+    parser.add_argument('--vis_batch_size', type=int, default=50, help='Batch size for visualization')
+    parser.add_argument('--vis_num_of_batches', type=int, default=40, help='Number of batches to visualize')
 
     args = parser.parse_args()
     source_conc_type = args.source_conc_type
@@ -117,6 +120,9 @@ def main():
     corruption_type = args.corruption_type
     lr = args.lr
     epochs = args.epochs
+    severity = args.severity
+    plot_batch_size = args.vis_batch_size
+    plot_num_of_batches = args.vis_num_of_batches
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     setting = 'pod_ram-s_conc {}-t_conc {}-repeat {}-eps_tol {}-data {}-corruption {}-lr {}'.format(
@@ -162,7 +168,26 @@ def main():
         corrupted_data = NpyDataset(os.path.join(mnist_c_path, 'test_images.npy'), 
                                 os.path.join(mnist_c_path, 'test_labels.npy'), transform=transform)
     
-    pod_ram_mnist(
+    elif data_name == 'cifar10':
+        transform = transforms.Compose(
+            [transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
+        clean_data = torchvision.datasets.CIFAR10(root='./data', train=False,
+                                            download=False, transform=transform)
+        mean = (0.4914, 0.4822, 0.4465)
+        std  = (0.2470, 0.2435, 0.2616)
+
+        transform_corrupted = transforms.Compose([
+            transforms.Normalize(mean, std)
+        ])
+        corrupted_data = NpyCIFAR10CDataset(
+            images_path=f'/cis/home/xhan56/code/wtr/data/CIFAR-10-C/{corruption_type}.npy',
+            labels_path='/cis/home/xhan56/code/wtr/data/CIFAR-10-C/labels.npy',
+            severity=severity,
+            transform=transform_corrupted
+        )
+    
+    pod_ram_mnist_cifar(
         model=model,
         ds_clean=clean_data,
         ds_corrupted=corrupted_data,
@@ -170,7 +195,9 @@ def main():
         device=device,
         num_of_repeats=num_of_repeats,
         setting=setting,
-        corruption_type=corruption_type
+        corruption_type=corruption_type,
+        plot_batch_size=plot_batch_size,
+        plot_num_of_batches=plot_num_of_batches
     )
     print('Done!')
 
