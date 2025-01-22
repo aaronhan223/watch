@@ -7,6 +7,72 @@ import matplotlib.pyplot as plt
 import pdb
 
 
+
+def podkopaev_ramdas_algorithm1(cal_test_losses, n_cal, source_conc_type='betting', target_conc_type='betting', \
+                                verbose=False, eps_tol=0.05, source_delta=0.025, target_delta = 0.025):
+    """
+    Implementation of Podkopaev & Ramdas baseline, i.e., algorithm 1 in that paper. 
+
+    Parameters
+    ----------
+    cal_test_losses  : Losses for calibration (holdout) and test sets; for evaluating set losses, should be 
+                      *mis*coverage indicators; (if evaluating point losses, would be conformity scores)
+    n_cal            : Number of calibration points.
+    source_conc_type : Concentration used for source UCB
+    target_conc_type : Concentration used for target LCB
+    eps_tol          : Epsilon tolerance
+
+    Returns
+    ------- 
+    alarm_idx        : The index of the test point where alarm is first raised
+    source_upper_bound_plus_tol : Estimate of UCB on source risk plus tolerance: \hat{U}_S(f) + \epsilon
+    target_lower_bounds : Array, estimates of LCB on target risk at each timestep \hat{L}_T^{t}(f)
+    """
+    
+    ## Index in test set of first alarm
+    alarm_idx = None
+    
+    ## cal and test losses:
+    cal_losses = cal_test_losses[:n_cal]
+    test_losses = cal_test_losses[n_cal:]
+    
+    ## Set up Drop_tester for computer UCB on source risk and LCB on target risk
+    tester = Drop_tester()
+    tester.eps_tol = eps_tol
+    tester.source_conc_type = source_conc_type
+    tester.target_conc_type = target_conc_type
+    tester.change_type = 'absolute'
+    tester.source_delta = target_delta
+    tester.target_delta = target_delta
+    
+    ## Estimate source risk UCB
+    tester.estimate_risk_source(cal_losses)
+    source_upper_bound_plus_tol = tester.source_rejection_threshold
+    if (verbose):
+        print(f'source_upper_bound_plus_tol (\hatU_S(f) + \epsilon) : {source_upper_bound_plus_tol}\n')
+    
+    ## Sequentially estimate target risk LCB for each testpoint
+    T = len(test_losses)
+    target_lower_bounds = np.zeros(T)
+    
+    for t in range(T):
+        tester.estimate_risk_target(test_losses[:(t+1)])
+        target_lower_bounds[t] = tester.target_risk_lower_bound
+        
+        if (verbose and t % 100 == 0):
+            print(f'target_lower_bounds[t={t}] (\hatL_T^{t}(f)): {target_lower_bounds[t]}')
+    
+        if (target_lower_bounds[t] > source_upper_bound_plus_tol and alarm_idx is None):
+            alarm_idx = t
+            
+            if (verbose):
+                print(f'podkopaev_ramdas_algorithm1 alarm raised at test point {t}!\n')
+    
+    return alarm_idx, source_upper_bound_plus_tol, target_lower_bounds
+
+
+
+
 def pod_ram_mnist_cifar(model, ds_clean, ds_corrupted, tester, device, num_of_repeats=50, plot=True, 
                   plot_batch_size=50, plot_num_of_batches=40, setting=None, corruption_type='fog'):
     """
