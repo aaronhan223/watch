@@ -22,6 +22,8 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.neighbors import NearestNeighbors
 import matplotlib.pyplot as plt
 import math
+from podkopaev_ramdas.baseline_alg import podkopaev_ramdas_algorithm1
+import time
 
 
 def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0, cs_type='signed',\
@@ -38,6 +40,7 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
         
 #     W = [] ## Will contain estimated likelihood ratio weights for each fold
     adapt_starts = [] ## Index of test point where adaptation should begin. If method != fixed_cal_dyn, then this is equal to num cal points in each fold
+    n_cals = []
     
     y_name = dataset0_test_0.columns[-1] ## Outcome must be last column
     
@@ -58,6 +61,7 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
         y_train, y_cal = y[train_index], y[cal_index]
         
         n_cal = len(X_cal)
+        n_cals.append(n_cal)
         
         # Train the model on the training set proper
         if (muh_fun_name == 'RF'):
@@ -208,7 +212,7 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             W_dict[method].append(W_i)
             
                 
-    return cs_0, cs_1, W_dict, adapt_starts, errors_0
+    return cs_0, cs_1, W_dict, adapt_starts, n_cals, errors_0
 
 
 def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, adapt_start, alpha=0.1, cs_type='abs',\
@@ -244,7 +248,8 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                       dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed', \
                       label_uptick=1, verbose=False, noise_mu=0, noise_sigma=0, methods=['fixed_cal_oracle', 'none'],\
                       depth=1,init_phase=500, num_folds=3, x_ctm_thresh=None, x_sched_thresh=None, alpha=0.1,\
-                      num_test_unshifted=500):
+                      num_test_unshifted=500, pod_ram_bool=False, pr_source_conc_type='betting', pr_target_conc_type='betting', \
+                      pr_eps_tol=0.05, pr_source_delta=0.025, pr_target_delta = 0.025,pr_stop_criterion='first_alarm'):
     
     
     
@@ -273,7 +278,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
    
 
 
-    cs_0, cs_1, W_dict, adapt_starts, errors_0 = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed, cs_type=cs_type, methods=methods, dataset0_name=dataset0_name, cov_shift_bias=cov_shift_bias, init_phase=init_phase, x_ctm_thresh=x_ctm_thresh, x_sched_thresh=x_sched_thresh)
+    cs_0, cs_1, W_dict, adapt_starts, n_cals, errors_0 = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed, cs_type=cs_type, methods=methods, dataset0_name=dataset0_name, cov_shift_bias=cov_shift_bias, init_phase=init_phase, x_ctm_thresh=x_ctm_thresh, x_sched_thresh=x_sched_thresh)
     
     
     
@@ -285,6 +290,12 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     coverage_0_dict = {}
     widths_0_dict = {}
     
+    if pod_ram_bool:
+        pod_ram_alarm_0_dict, pod_ram_alarm_1_dict = {}, {}
+        source_UCB_tols_0_dict, source_UCB_tols_1_dict = {}, {}
+        target_LCBs_0_dict, target_LCBs_1_dict = {}, {}
+        
+    
     for method in methods:
         martingales_0_dict[method], martingales_1_dict[method] = [], []
         sigmas_0_dict[method], sigmas_1_dict[method] = [], []
@@ -293,6 +304,12 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         p_values_0_dict[method] = []
         coverage_0_dict[method] = []
         widths_0_dict[method] = []
+        
+        if pod_ram_bool:
+            pod_ram_alarm_0_dict['PodRam_cp_'+method], pod_ram_alarm_1_dict['PodRam_cp_'+method] = [], []
+            source_UCB_tols_0_dict['PodRam_cp_'+method], source_UCB_tols_1_dict['PodRam_cp_'+method] = [], []
+            target_LCBs_0_dict['PodRam_cp_'+method], target_LCBs_1_dict['PodRam_cp_'+method] = [], []
+            
 
 #     fold_martingales_0, fold_martingales_1 = [], []
 #     sigmas_0, sigmas_1 = [], []
@@ -320,11 +337,37 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
             martingales_0_dict[method].append(martingale_value_0)
             sigmas_0_dict[method].append(sigma_0)
 
-            ## Storing p-values
+            ## Storing p-values, coverage, and widths
             p_values_0_dict[method].append(p_vals)
-            coverage_0_dict[method].append(((q_lower <= score_0)&(q_upper >= score_0)))
+            coverage_vals = ((q_lower <= score_0)&(q_upper >= score_0))
+            coverage_0_dict[method].append(coverage_vals)
             widths_0_dict[method].append(q_upper - q_lower)
             
+            
+            if pod_ram_bool:
+                miscoverage_losses = 1 - coverage_vals
+                
+                ## Run Podkopaev Ramdas baseline on miscoverage losses for corresponding CP method
+                print("Running PodRam algorithm 1")
+                start_time = time.time()
+        
+                alarm_test_idx, source_UCB_tol, target_LCBs = podkopaev_ramdas_algorithm1(miscoverage_losses[:n_cals[i]], \
+                                                                                      miscoverage_losses[n_cals[i]:], \
+                                                                                      source_conc_type=pr_source_conc_type, \
+                                                                                      target_conc_type=pr_target_conc_type, \
+                                                                                      eps_tol=pr_eps_tol, \
+                                                                                      source_delta=pr_source_delta, \
+                                                                                      target_delta=pr_target_delta,\
+                                                                                      stop_criterion=pr_stop_criterion)
+                print("Completed PodRam algorithm 1; runtime in min = ", (time.time()-start_time)/60 )
+                
+                if (alarm_test_idx is None):
+                    pod_ram_alarm_0_dict['PodRam_cp_'+method].append(None)
+                else:
+                    pod_ram_alarm_0_dict['PodRam_cp_'+method].append(alarm_test_idx)
+                source_UCB_tols_0_dict['PodRam_cp_'+method].append(source_UCB_tol)
+                target_LCBs_0_dict['PodRam_cp_'+method].append(target_LCBs)
+                
 
 #             coverage_0_dict[method].append(p_vals <= 0.9)
 
@@ -339,6 +382,11 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                 retrain_s_count_1_dict[method] += 1
             martingales_1_dict[method].append(martingale_value_1)
             sigmas_1_dict[method].append(sigma_1)
+            
+            
+            if pod_ram_bool:
+                raise ("Error: have not implemented PodRamdas baseline for dataset1. Need to also compute CP quantiles and coverage values.")
+                
     
     ### Don't need this part for plotting purposes ###
     # Decide to retrain based on two out of three martingales exceeding the threshold
@@ -367,10 +415,15 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     min_len = np.min([len(sigmas_0_dict[method][i]) for i in range(0, len(sigmas_0_dict[method]))])
     
     paths_dict = {}
+    PodRam_paths_dict = {}
+    PodRam_paths=None
+    
     for method in methods:
     
         paths = pd.DataFrame(np.c_[np.repeat(seed, min_len), np.arange(0, min_len)], columns = ['itrial', 'obs_idx'])
         ## For each fold:
+        
+        ## (W)CTM methods:
         sigmas_0 = sigmas_0_dict[method]
         sigmas_1 = sigmas_1_dict[method]
         for k in range(0, len(sigmas_0_dict[method])):
@@ -381,15 +434,33 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
             paths['pvals_0_'+str(k)] = p_values_0_dict[method][k][0:min_len]
             paths['coverage_0_'+str(k)] = coverage_0_dict[method][k][0:min_len]
             paths['widths_0_'+str(k)] = widths_0_dict[method][k][0:min_len]
-            
+
+
         for k in range(0, len(sigmas_1)):
             paths['sigmas_1_'+str(k)] = sigmas_1[k][0:min_len]
             paths['martingales_1_'+str(k)] = martingales_1_dict[method][k][0:min_len]
 #             paths['cs_1_'+str(k)] = cs_1[k][0:min_len]
-            
+
         paths_dict[method] = paths
     
-    return paths_dict
+        
+        
+        if pod_ram_bool:
+            ## PodRam_cp baseline method:
+#             print("len(target_LCBs_0_dict['PodRam_cp_'+method]) ", len(target_LCBs_0_dict['PodRam_cp_'+method]))
+#             print("len(target_LCBs_0_dict['PodRam_cp_'+method][0]) ", len(target_LCBs_0_dict['PodRam_cp_'+method][0]))
+#             pr_min_len = np.min([len(lcbs[i]) for lcbs in target_LCBs_0_dict['PodRam_cp_'+method]])
+            pr_min_len = len(target_LCBs_0_dict['PodRam_cp_'+method][0])
+            PodRam_paths = pd.DataFrame(np.c_[np.repeat(seed, pr_min_len), np.arange(0, pr_min_len)], columns = ['itrial', 'obs_idx'])
+            for k in range(0, len(source_UCB_tols_0_dict['PodRam_cp_'+method])):
+                PodRam_paths['alarm_0_'+str(k)] = pod_ram_alarm_0_dict['PodRam_cp_'+method][k]
+                PodRam_paths['UCBtol_0_'+str(k)] = source_UCB_tols_0_dict['PodRam_cp_'+method][k]
+                PodRam_paths['LCB_0_'+str(k)] = target_LCBs_0_dict['PodRam_cp_'+method][k][0:pr_min_len]
+                
+            PodRam_paths_dict['PodRam_cp_'+method] = PodRam_paths
+            
+    
+    return paths_dict, PodRam_paths_dict
 
         
 if __name__ == "__main__":
@@ -426,6 +497,13 @@ if __name__ == "__main__":
     parser.add_argument('--x_ctm_thresh', type=float, default=3.1623, help="Threshold X-test martingale value that triggers adaptation for fixed_cal_dyn when X-CTM value exceeds it. Default: sqrt(10)")
     parser.add_argument('--x_sched_thresh', type=int, default=1000, help="Threshold ratio that triggers adaptation for fixed_cal_dyn when X-CTM value exceeds it.")
     parser.add_argument('--num_test_unshifted', type=int, default=500, help="Number of test points that are not shifted; ie, num test points prior to the changepoint occuring")
+    parser.add_argument('--pod_ram_bool', type=bool, default=False, help="Whether to run PodkopaevRamdas baseline.")
+    parser.add_argument('--pr_source_conc_type', type=str, default='betting', help="PodRam Concentration type used for source data.")
+    parser.add_argument('--pr_target_conc_type', type=str, default='betting', help="PodRam Concentration type used for target data.")
+    parser.add_argument('--pr_eps_tol', type=float, default=0.0, help="PodRam epsilon tolerance.")
+    parser.add_argument('--pr_source_delta', type=float, default=1/(2*10**3), help="PodRam source delta.")
+    parser.add_argument('--pr_target_delta', type=float, default=1/(2*10**3), help="PodRam target delta.")
+    parser.add_argument('--pr_stop_criterion', type=str, default='first_alarm', help="Stopping criterion for PodRam Algorithm 1 baseline.")
 
     ## python main.py dataset muh_fun_name bias
     ## python main.py --dataset0 white_wine --dataset1 red_wine --muh_fun_name NN --d0_shift_type covariate --bias 0.53
@@ -449,10 +527,17 @@ if __name__ == "__main__":
     num_folds = args.num_folds
     x_ctm_thresh = args.x_ctm_thresh
     x_sched_thresh = args.x_sched_thresh
-    if ('fixed_cal_dyn' in methods):
-        num_test_unshifted = args.num_test_unshifted
-    else:
-        num_test_unshifted = args.num_test_unshifted
+    num_test_unshifted = args.num_test_unshifted
+    pod_ram_bool = args.pod_ram_bool
+    
+    pr_source_conc_type=args.pr_source_conc_type
+    pr_target_conc_type=args.pr_target_conc_type
+    pr_eps_tol=args.pr_eps_tol
+    pr_source_delta=args.pr_source_delta
+    pr_target_delta=args.pr_target_delta
+    pr_stop_criterion=args.pr_stop_criterion
+    
+    print("pod_ram_bool : ", pod_ram_bool)
     
     ## Load datasets into dataframes
     dataset0 = eval(f'get_{dataset0_name}_data()')
@@ -462,8 +547,13 @@ if __name__ == "__main__":
         dataset1 = None
     
     paths_dict_all = {}
+    PodRam_paths_dict_all = {}
+    
     for method in methods:
         paths_dict_all[method] = pd.DataFrame()
+        
+        if pod_ram_bool:
+            PodRam_paths_dict_all['PodRam_cp_'+method] = pd.DataFrame()
 #     paths_all = pd.DataFrame()
     
     methods_all = "_".join(methods)
@@ -481,12 +571,21 @@ if __name__ == "__main__":
         test0_size
     )
     
+    if pod_ram_bool:
+        pod_ram_setting = 'sConc{}-tConc{}-eTol{}-sDelta{}-tDelta{}-stop{}'.format(
+            pr_source_conc_type, 
+            pr_target_conc_type,
+            pr_eps_tol, 
+            pr_source_delta, 
+            pr_target_delta,
+            pr_stop_criterion
+        )
+    
     print(f'Running with setting: {setting}...\n')
     
     for seed in tqdm(range(0, n_seeds)):
         # training_schedule = ['variable', 'fix']
-
-        paths_dict_curr = training_function(
+        paths_dict_curr, PodRam_paths_dict_curr = training_function(
             dataset0, 
             dataset0_name, 
             dataset1, 
@@ -508,19 +607,43 @@ if __name__ == "__main__":
             num_folds=num_folds,
             x_ctm_thresh=x_ctm_thresh,
             x_sched_thresh=x_sched_thresh,
-            num_test_unshifted=num_test_unshifted
+            num_test_unshifted=num_test_unshifted,
+            pod_ram_bool=pod_ram_bool,
+            pr_source_conc_type=pr_source_conc_type,
+            pr_target_conc_type=pr_target_conc_type,
+            pr_eps_tol=pr_eps_tol,
+            pr_source_delta=pr_source_delta,
+            pr_target_delta=pr_target_delta,
+            pr_stop_criterion=pr_stop_criterion
         )
         for method in methods:
             paths_dict_all[method] = pd.concat([paths_dict_all[method], paths_dict_curr[method]], ignore_index=True)
-        
+            
+            if pod_ram_bool:
+                PodRam_paths_dict_all['PodRam_cp_'+method] = pd.concat([PodRam_paths_dict_all['PodRam_cp_'+method], \
+                                                                        PodRam_paths_dict_curr['PodRam_cp_'+method]], ignore_index=True)
         
     ## Save all results together
     results_all = paths_dict_all[methods[0]]
     results_all['method'] = methods[0]
+    
+    if pod_ram_bool:
+        PodRam_results_all = PodRam_paths_dict_all['PodRam_cp_'+methods[0]]
+        PodRam_results_all['method'] = 'PodRam_cp_'+methods[0]
+    
     for method in methods[1:]:
         paths_dict_all[method]['method'] = method
         results_all = pd.concat([results_all, paths_dict_all[method]], ignore_index=True)
+        
+        if pod_ram_bool:
+            PodRam_paths_dict_all['PodRam_cp_'+method]['method'] = 'PodRam_cp_'+method
+            PodRam_results_all = pd.concat([PodRam_results_all, PodRam_paths_dict_all['PodRam_cp_'+method]], ignore_index=True)
+        
     results_all.to_csv(f'../results/{setting}.csv')
+    
+    if pod_ram_bool:
+        PodRam_results_all.to_csv(f'../results/{setting}_PodRam-{pod_ram_setting}.csv')
+    
     
     
     ## Preparation for plotting

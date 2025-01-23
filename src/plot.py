@@ -33,7 +33,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
     if (dataset0_name in ['mnist', 'cifar10']):
         plot_image_data = 'mnist_cifar_'
     
-    method_name_dict = {'fixed_cal_dyn' : 'WCTM', 'none' : 'CTM'}
+    method_name_dict = {'fixed_cal_dyn' : 'WCTM', 'fixed_cal' : 'WCTM', 'none' : 'CTM'}
     
     ####################
     ## Plot test statistic AND martingale paths

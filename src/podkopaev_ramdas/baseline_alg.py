@@ -10,7 +10,8 @@ import pdb
 
 
 def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betting', target_conc_type='betting', \
-                                verbose=False, eps_tol=0.05, source_delta=0.025, target_delta = 0.025):
+                                verbose=False, eps_tol=0.05, source_delta=0.025, target_delta = 0.025,\
+                                stop_criterion='first_alarm', max_length=2000):
     """
     Implementation of Podkopaev & Ramdas *sequential testing* baseline, i.e., algorithm 1 in that paper. 
 
@@ -23,6 +24,8 @@ def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betti
     source_conc_type : Concentration used for source UCB
     target_conc_type : Concentration used for target LCB
     eps_tol          : Epsilon tolerance
+    stop_criterion   : Criterion for when to stop running the algorithm. in ['first_alarm', 'full_path', 'fixed_length']
+    fixed_length     : Max num test points to process when stop_criterion=='fixed_length'
 
     Returns
     ------- 
@@ -51,29 +54,37 @@ def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betti
     
     ## Sequentially estimate target risk LCB for each testpoint
     T = len(test_losses)
-    target_lower_bounds = np.zeros(T)
+    target_lower_bounds = [] # np.zeros(T)
     
     for t in range(T):
         tester.estimate_risk_target(test_losses[:(t+1)])
-        target_lower_bounds[t] = tester.target_risk_lower_bound
+        target_lower_bounds.append(tester.target_risk_lower_bound)
         
         if (verbose and t % 50 == 0):
             print(f'target_lower_bounds[t={t}] (\hatL_T^{t}(f)): {target_lower_bounds[t]}')
     
         if (target_lower_bounds[t] > source_upper_bound_plus_tol and alarm_idx is None):
             alarm_idx = t
-            
+                        
             if (verbose):
                 print(f'podkopaev_ramdas_algorithm1 alarm raised at test point {t}!\n')
+                
+            if (stop_criterion == 'first_alarm'):
+                return alarm_idx, source_upper_bound_plus_tol, target_lower_bounds
+            
+        if (stop_criterion == 'fixed_length' and t > max_length):
+            return alarm_idx, source_upper_bound_plus_tol, target_lower_bounds
+                
     
-    return alarm_idx, source_upper_bound_plus_tol, target_lower_bounds
+    return alarm_idx, source_upper_bound_plus_tol, np.array(target_lower_bounds)
 
 
 
 
 
 def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_type='betting', target_conc_type='betting', \
-                                verbose=False, eps_tol=0.05, source_delta=0.025, target_delta = 0.025):
+                                verbose=False, eps_tol=0.05, source_delta=0.025, target_delta = 0.025,\
+                                stop_criterion='first_alarm', max_length=2000):
     """
     Implementation of Podkopaev & Ramdas *changepoint detection* baseline,
     i.e., see "From sequential testing to changepoint detection" in that paper.
@@ -92,6 +103,9 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
     source_conc_type : Concentration used for source UCB
     target_conc_type : Concentration used for target LCB
     eps_tol          : Epsilon tolerance
+    stop_criterion   : Criterion for when to stop running Algorithm 1. in ['first_alarm', 'full_path', 'fixed_length']
+    fixed_length     : Max num test points to process when stop_criterion=='fixed_length'
+
 
     Returns
     ------- 
@@ -108,15 +122,24 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
                      ## Note: target_LCBs[t] will be an array for timesteps t:(T-1) (of length T-t) 
     
     ## Runs algorithm1 of that paper at each test timepoint and return the earliest stopping time.
+    alarm_min = T+1
     for t in tqdm(range(T)):
             
-        alarm_curr, source_UCB_tol_curr, target_LCB_curr = podkopaev_ramdas_algorithm1(cal_losses, test_losses[t:], source_conc_type=source_conc_type, \
-                                                                    target_conc_type=target_conc_type, verbose=False, eps_tol=eps_tol,\
-                                                                    source_delta=source_delta, target_delta=target_delta)
+        alarm_curr, source_UCB_tol_curr, target_LCB_curr = podkopaev_ramdas_algorithm1(cal_losses, test_losses[t:],\
+                                                                    source_conc_type=source_conc_type, \
+                                                                    target_conc_type=target_conc_type, verbose=False,\
+                                                                    eps_tol=eps_tol,source_delta=source_delta, \
+                                                                    target_delta=target_delta)
         
+        if (alarm_curr is not None and alarm_curr < alarm_min):
+            alarm_min = alarm_curr
+            
         alarm_times.append(alarm_curr)
         source_UCB_tols.append(source_UCB_tol_curr)
         target_LCBs_all.append(target_LCB_curr)
+        
+        if (alarm_min <= t):
+            break
     
     ## Compute first alarm time
     alarm_times_noNone = [np.inf if a is None else a for a in alarm_times]
@@ -130,7 +153,7 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
     if verbose:
         print("\n source_UCB_tol : ", source_UCB_tols[0])
     
-    for t in range(T):
+    for t in range(len(alarm_times)):
     
 #         assert(source_UCB_tols[0] == source_UCB_tols[t]) ## source UCB + tol should stay same
     
