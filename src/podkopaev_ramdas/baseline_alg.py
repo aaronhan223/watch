@@ -125,7 +125,7 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
     
     ## Runs algorithm1 of that paper at each test timepoint and return the earliest stopping time.
     alarm_min = T+1
-    for t in range(T):
+    for t in range(int(T/batch_size)):
         ## Initiate new sequential testing object
         ## Set up Drop_tester for computer UCB on source risk and LCB on target risk
         testers_all.append(Drop_tester())
@@ -152,6 +152,8 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
         ## Update LCB_t estimate for each i-th tester, i \in {0, ..., t}
         ## Ie, at each time t, LCB for tester i is computed on points i:t
         for i in range(len(testers_all)):
+#             print(f't = {t}, i = {i}, (i*batch_size) = {(i*batch_size)}, (t+1)*batch_size = {(t+1)*batch_size}')
+#             print(f'len(test_losses) {len(test_losses)}')
             testers_all[i].estimate_risk_target(test_losses[(i*batch_size):((t+1)*batch_size)])
             target_LCBs_all[i].append(testers_all[i].target_risk_lower_bound)
             
@@ -163,7 +165,7 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
         target_LCBs_0_t = target_LCBs_all[:(t+1)] ## list of target_LCBs arrays for times 0, ..., t
         target_LCBs_t = [target_LCBs_0_t[i][t-i] for i in range(len(target_LCBs_0_t))] ## list of LCB values at time t
         target_max_LCBs.append(max(target_LCBs_t)) ## Maximum LCB value at time t
-        if (verbose and (t % 10 == 0) or batch_size >= 10):
+        if (verbose and ((t % 10 == 0) or batch_size >= 10)):
             print(f'target_max_LCBs[(t+1)*batch_size={(t+1)*batch_size}] (max(\hatL_T^t(f))): {target_max_LCBs[t]}')
 
         
@@ -171,7 +173,7 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
         if (alarm_idx is not None and stop_criterion=='first_alarm'):
             break
         
-        if (alarm_idx is not None and stop_criterion=='fixed_length' and (t+1)*batch_size >= max_length):
+        if (stop_criterion=='fixed_length' and (alarm_idx is not None and (t+1)*batch_size >= max_length)):
             break
             
     

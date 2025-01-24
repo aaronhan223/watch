@@ -264,7 +264,8 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                       depth=1,init_phase=500, num_folds=3, x_ctm_thresh=None, x_sched_thresh=None, alpha=0.1,\
                       num_test_unshifted=500, run_PR_ST=True, run_PR_CD=False, pr_source_conc_type='betting', \
                       pr_target_conc_type='betting', pr_eps_tol=0.05, pr_source_delta=0.025, \
-                      pr_target_delta = 0.025,pr_stop_criterion='first_alarm',init_ctm_on_cal_set=True):
+                      pr_target_delta = 0.025,pr_st_stop_criterion='first_alarm',pr_cd_stop_criterion='first_alarm',\
+                      init_ctm_on_cal_set=True):
     
     
     
@@ -384,6 +385,9 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                 ## Run Podkopaev Ramdas baseline on miscoverage losses for corresponding CP method
                 print("Running PodRam algorithm 1")
                 start_time = time.time()
+                
+                print("miscoverage_losses[:n_cals[i]] ", len(miscoverage_losses[:n_cals[i]]))
+                print("miscoverage_losses[n_cals[i]:] ", len(miscoverage_losses[n_cals[i]:]))
         
                 PR_ST_alarm_test_idx, PR_ST_source_UCB_tol, PR_ST_target_LCBs = podkopaev_ramdas_algorithm1(\
                                                                                       miscoverage_losses[:n_cals[i]], \
@@ -393,7 +397,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                                                                                       eps_tol=pr_eps_tol, \
                                                                                       source_delta=pr_source_delta, \
                                                                                       target_delta=pr_target_delta,\
-                                                                                      stop_criterion=pr_stop_criterion)
+                                                                                      stop_criterion=pr_st_stop_criterion)
                 print("Completed PodRam algorithm 1; runtime in min = ", (time.time()-start_time)/60)
                 
                 
@@ -411,15 +415,18 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                 start_time = time.time()
             
             if run_PR_CD:
+                
+                
                 PR_CD_alarm_test_idx, PR_CD_source_UCB_tol, PR_CD_target_LCBs = podkopaev_ramdas_changepoint_detection(\
                                                                                       miscoverage_losses[:n_cals[i]], \
                                                                                       miscoverage_losses[n_cals[i]:], \
                                                                                       source_conc_type=pr_source_conc_type, \
                                                                                       target_conc_type=pr_target_conc_type, \
-                                                                                      eps_tol=pr_eps_tol, \
-                                                                                      source_delta=pr_source_delta, \
-                                                                                      target_delta=pr_target_delta,\
-                                                                                      stop_criterion=pr_stop_criterion)
+                                                                                      eps_tol=pr_eps_tol,\
+                                                                                      stop_criterion=pr_cd_stop_criterion)
+#                                                                                       source_delta=pr_source_delta, \
+#                                                                                       target_delta=pr_target_delta,\
+#                                                                                       stop_criterion=pr_stop_criterion)
             
                 print("Completed PodRam changepoint detection algo; runtime in min = ", (time.time()-start_time)/60)
                 
@@ -596,7 +603,8 @@ if __name__ == "__main__":
     parser.add_argument('--pr_eps_tol', type=float, default=0.0, help="PodRam epsilon tolerance.")
     parser.add_argument('--pr_source_delta', type=float, default=1/200, help="PodRam source delta.")
     parser.add_argument('--pr_target_delta', type=float, default=1/200, help="PodRam target delta.")
-    parser.add_argument('--pr_stop_criterion', type=str, default='first_alarm', help="Stopping criterion for PodRam Algorithm 1 baseline.")
+    parser.add_argument('--pr_st_stop_criterion', type=str, default='fixed_length', help="Stopping criterion for PodRam Algorithm 1 baseline.")
+    parser.add_argument('--pr_cd_stop_criterion', type=str, default='fixed_length', help="Stopping criterion for PodRam changepoint detection baseline.")
 #     parser.add_argument('--init_ctm_on_cal_set', type=bool, default=True, help="Whether to initialize conformal martingales on the calibration set (as in Vovk et al); false := initialize at deployment time instead for comparison with Ramdas")
     parser.add_argument('--init_on_cal', dest='init_ctm_on_cal_set', action='store_true',
                     help='Set the init_ctm_on_cal_set flag value to True.')
@@ -639,7 +647,8 @@ if __name__ == "__main__":
     pr_eps_tol=args.pr_eps_tol
     pr_source_delta=args.pr_source_delta
     pr_target_delta=args.pr_target_delta
-    pr_stop_criterion=args.pr_stop_criterion
+    pr_st_stop_criterion=args.pr_st_stop_criterion
+    pr_cd_stop_criterion=args.pr_cd_stop_criterion
     
     print("run_PR_ST : ", run_PR_ST)
     print("run_PR_CD : ", run_PR_CD)
@@ -681,13 +690,14 @@ if __name__ == "__main__":
     )
     
     if run_PR_ST:
-        pod_ram_setting = 'sConc{}-tConc{}-eTol{}-sDelta{}-tDelta{}-stop{}'.format(
+        pod_ram_setting = 'sConc{}-tConc{}-eTol{}-sDelta{}-tDelta{}-ST{}-CD{}'.format(
             pr_source_conc_type, 
             pr_target_conc_type,
             pr_eps_tol, 
             pr_source_delta, 
             pr_target_delta,
-            pr_stop_criterion
+            pr_st_stop_criterion,
+            pr_cd_stop_criterion
         )
     
     print(f'Running with setting: {setting}...\n')
@@ -724,7 +734,8 @@ if __name__ == "__main__":
             pr_eps_tol=pr_eps_tol,
             pr_source_delta=pr_source_delta,
             pr_target_delta=pr_target_delta,
-            pr_stop_criterion=pr_stop_criterion,
+            pr_st_stop_criterion=pr_st_stop_criterion,
+            pr_cd_stop_criterion=pr_cd_stop_criterion,
             init_ctm_on_cal_set=init_ctm_on_cal_set
         )
         for method in methods:
