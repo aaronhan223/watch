@@ -1,7 +1,8 @@
 import numpy as np
 from numpy.core.numeric import indices
 
-from confseq.boundaries import normal_mixture_bound, gamma_exponential_mixture_bound
+## Note from Drew: Commented out following import from confseq for now since not sure what library/package etc that is
+#from confseq.boundaries import normal_mixture_bound, gamma_exponential_mixture_bound
 
 # HOEFFDING'S CIs and CSs
 

@@ -5,15 +5,16 @@ import pdb
 
 def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, dataset0_name, martingales_0_dict,\
                           martingales_0_stderr_dict, dataset1_paths_dict,dataset1_paths_stderr_dict,errors_0_means_dict,\
-                          errors_1_means_dict,errors_0_stderr_dict, errors_1_stderr_dict, p_vals_cal_dict, p_vals_test_dict,\
-                          errs_window=100,change_point_index=None, title="Martingale Paths", xlabel="Observation Index", \
-                          ylabel="Simple Jumper Martingale Value", martingale="martingale_paths", dataset0_shift_type='none',\
-                          cov_shift_bias=0.0, plot_errors=False, n_seeds=1, cs_type='signed', setting=None, \
-                          label_shift_bias=1,dataset1_name=None,martingales_1_dict=None,martingales_1_stderr_dict=None,\
-                          noise_mu=0, noise_sigma=0, coverage_0_means_dict=[], coverage_0_stderr_dict=[],\
-                          pvals_0_means_dict=[], pvals_0_stderr_dict=[], widths_0_medians_dict=[], widths_0_lower_q_dict=[],\
-                          widths_0_upper_q_dict=[],methods=['none'], severity=None,schedule='variable',num_test_unshifted=1000,\
-                          title_size=30, x_label_size=25, y_label_size=25, legend_size=20, x_tick_size=18, y_tick_size=18):
+                          errors_1_means_dict,errors_0_stderr_dict, errors_1_stderr_dict, p_vals_pre_change_dict, \
+                          p_vals_post_change_dict,errs_window=100,change_point_index=None, title="Martingale Paths",\
+                          xlabel="Observation Index", ylabel="Martingale Value", martingale="martingale_paths", 
+                          dataset0_shift_type='none',cov_shift_bias=0.0, plot_errors=False, n_seeds=1, cs_type='signed', \
+                          setting=None, label_shift_bias=1, dataset1_name=None, martingales_1_dict=None, \
+                          martingales_1_stderr_dict=None,noise_mu=0, noise_sigma=0, coverage_0_means_dict=[], \
+                          coverage_0_stderr_dict=[],pvals_0_means_dict=[], pvals_0_stderr_dict=[], widths_0_medians_dict=[], \
+                          widths_0_lower_q_dict=[],widths_0_upper_q_dict=[],methods=['none'], severity=None, \
+                          schedule='variable', num_test_unshifted=1000, title_size=30, x_label_size=25, y_label_size=25, \
+                          legend_size=20, x_tick_size=18, y_tick_size=18):
     """
     Plot martingale paths for red wine and white wine groups over time, similar to Figure 2 in the paper.
     
@@ -33,7 +34,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
     if (dataset0_name in ['mnist', 'cifar10']):
         plot_image_data = 'mnist_cifar_'
     
-    method_name_dict = {'fixed_cal_dyn' : 'WCTM', 'none' : 'CTM'}
+    method_name_dict = {'fixed_cal_dyn' : 'WCTM', 'fixed_cal' : 'WCTM', 'none' : 'CTM'}
     
     ####################
     ## Plot test statistic AND martingale paths
@@ -296,10 +297,10 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
     fig, ax = plt.subplots(1, 2,figsize=(10, 8))
     
     for m_i, method in enumerate(methods):
-        ax[0].hist(p_vals_cal_dict[method], label=method_name_dict[method], color=f'C{m_i}', alpha=0.5) #row=0, col=0
+        ax[0].hist(p_vals_pre_change_dict[method], label=method_name_dict[method], color=f'C{m_i}', alpha=0.5) #row=0, col=0
         ax[0].set_title('Before changepoint', fontsize=x_label_size)
 
-        ax[1].hist(p_vals_test_dict[method], label=method_name_dict[method], color=f'C{m_i}', alpha=0.5) #row=1, col=0
+        ax[1].hist(p_vals_post_change_dict[method], label=method_name_dict[method], color=f'C{m_i}', alpha=0.5) #row=1, col=0
         ax[1].set_title('After changepoint', fontsize=x_label_size)
     
     ax[0].tick_params(axis='both', which='major', labelsize=x_tick_size)

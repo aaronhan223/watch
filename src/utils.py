@@ -710,9 +710,15 @@ def split_and_shift_dataset0(
 ):
     
     dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
+    dataset0_train = dataset0_train.reset_index(drop=True).astype(float)
+    dataset0_test_0 = dataset0_test_0.reset_index(drop=True).astype(float)
+    
     dataset0_test_0_unshifted_idx = np.arange(num_test_unshifted) ## indices of unshifted test points (before changepoint)
     dataset0_test_0_post_change = dataset0_test_0.iloc[num_test_unshifted:] ## test candiate pts excluding unshifted idx
+    ## Note: idx in "dataset0_test_0" == num_test_unshifted + idx in "dataset0_test_0_post_change"
     
+    
+    dataset0_test_0_post_change = dataset0_test_0_post_change.reset_index(drop=True)
 
     if (dataset0_shift_type == 'none'):
         ## No shift within dataset0    
@@ -722,7 +728,6 @@ def split_and_shift_dataset0(
     elif (dataset0_shift_type == 'covariate'):
         ## Covariate shift within dataset0
         
-        dataset0_test_0_post_change = dataset0_test_0_post_change.reset_index(drop=True)
         
         dataset0_train_copy = dataset0_train.copy()
         X_train = dataset0_train_copy.iloc[:, :-1].values
@@ -744,8 +749,10 @@ def split_and_shift_dataset0(
             # Define a threshold for 'alcohol' to identify high alcohol content wines
             alcohol_threshold = dataset0_test_0['alcohol'].quantile(label_uptick)
             # Increase the quality score by a number for wines with alcohol above the threshold
-            dataset0_test_0.loc[dataset0_test_0['alcohol'] > alcohol_threshold, 'quality'] += 1
+            indices_to_shift = num_test_unshifted + np.where(dataset0_test_0_post_change['alcohol'] > alcohol_threshold)[0]
+            dataset0_test_0.loc[indices_to_shift, 'quality'] += 1
             dataset0_test_0['quality'] = dataset0_test_0['quality'].clip(lower=0, upper=10)
+            
         elif 'airfoil' in dataset0_name:
             velocity_threshold = dataset0_test_0['Velocity'].median()
             dataset0_test_0.loc[dataset0_test_0['Velocity'] > velocity_threshold, 'Sound'] += 3
@@ -757,7 +764,7 @@ def split_and_shift_dataset0(
         elif 'superconduct' in dataset0_name:
             ea_threshold = dataset0_test_0['mean_ElectronAffinity'].quantile(0.75)
             # Increase critical_temp by 10% for materials where oxygen content is above the threshold
-            dataset0_test_0.loc[dataset0_test_0['mean_ElectronAffinity'] > ea_threshold, 'critical_temp'] *= 2 #1.1
+            dataset0_test_0.loc[dataset0_test_0['mean_ElectronAffinity'] > ea_threshold, 'critical_temp'] *= label_uptick #2 #1.1
             dataset0_test_0['critical_temp'] = dataset0_test_0['critical_temp'].clip(lower=0, upper=200)
         elif 'wave' in dataset0_name:
             x_mean_threshold = dataset0_test_0['X1'].median()
@@ -766,9 +773,18 @@ def split_and_shift_dataset0(
             dataset0_test_0['Power_Output'] = dataset0_test_0['Power_Output'].clip(lower=0)
             
         elif 'bike_sharing' in dataset0_name:
-            ## For 25% coldest of days, increase number of bike rentals by 10%:
+#             ## For 25% coldest of days, increase number of bike rentals by 10%:
             temp_threshold = dataset0_test_0['temp'].quantile(0.25) 
-            dataset0_test_0.loc[dataset0_test_0['temp'] < temp_threshold, 'count'] *= 2
+            indices_to_shift = num_test_unshifted + np.where(dataset0_test_0_post_change['temp'] > temp_threshold)[0]
+            dataset0_test_0.loc[indices_to_shift, 'count'] *= label_uptick #2
+#             temp_mean = dataset0_test_0['temp'].mean() 
+# #             indices_to_shift = num_test_unshifted + np.where(dataset0_test_0_post_change['temp'] > temp_threshold)[0]
+#             dataset0_test_0.loc[num_test_unshifted:, 'count'] = dataset0_test_0.loc[num_test_unshifted:, 'count']**2 / temp_mean #2
+
+        elif 'meps' in dataset0_name:
+            age_threshold = dataset0_test_0['AGE53X'].quantile(0.25) 
+            indices_to_shift = num_test_unshifted + np.where(dataset0_test_0_post_change['AGE53X'] > age_threshold)[0]
+            dataset0_test_0.loc[indices_to_shift, 'UTILIZATION'] *= label_uptick #1.5
             
 
         return dataset0_train, dataset0_test_0

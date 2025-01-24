@@ -165,7 +165,7 @@ def calculate_p_values_and_quantiles(conformity_scores, alpha, cs_type='abs'):
             ## For each i, q_upper[i] := quantile(conformity_scores[:i] \cup inf, 1-alpha/2)
                         ## q_lower[i] := quantile(conformity_scores[:i] \cup -inf, alpha/2)
             q_upper[i] = np.quantile(conformity_scores_inf[idx_include_inf], 1-alpha/2)
-            q_upper[i] = np.quantile(conformity_scores_neg_inf[idx_include_inf], alpha/2)
+            q_lower[i] = np.quantile(conformity_scores_neg_inf[idx_include_inf], alpha/2)
             idx_include_inf[i] = True
 
     

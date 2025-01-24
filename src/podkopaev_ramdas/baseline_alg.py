@@ -7,6 +7,181 @@ import matplotlib.pyplot as plt
 import pdb
 
 
+
+
+def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betting', target_conc_type='betting', \
+                                verbose=False, eps_tol=0.0, source_delta=0.005, target_delta = 0.005,\
+                                stop_criterion='fixed_length', max_length=2500):
+    """
+    Implementation of Podkopaev & Ramdas *sequential testing* baseline, i.e., algorithm 1 in that paper. 
+
+    Parameters
+    ----------
+    cal_losses       : Array of losses for calibration (holdout) set; for evaluating set losses, should be 
+                      *mis*coverage indicators; (if evaluating point losses, would be conformity scores)
+    test_losses      : Array of losses for test (deployment) set; for evaluating set losses, should be 
+                      *mis*coverage indicators; (if evaluating point losses, would be conformity scores)
+    source_conc_type : Concentration used for source UCB
+    target_conc_type : Concentration used for target LCB
+    eps_tol          : Epsilon tolerance
+    stop_criterion   : Criterion for when to stop running the algorithm. in ['first_alarm', 'full_path', 'fixed_length']
+    fixed_length     : Max num test points to process when stop_criterion=='fixed_length'
+
+    Returns
+    ------- 
+    alarm_idx        : The index of the test point where alarm is first raised
+    source_upper_bound_plus_tol : Estimate of UCB on source risk plus tolerance: \hat{U}_S(f) + \epsilon
+    target_lower_bounds : Array, estimates of LCB on target risk at each timestep \hat{L}_T^{t}(f)
+    """
+    
+    ## Index in test set of first alarm
+    alarm_idx = None
+    
+    ## Set up Drop_tester for computer UCB on source risk and LCB on target risk
+    tester = Drop_tester()
+    tester.eps_tol = eps_tol
+    tester.source_conc_type = source_conc_type
+    tester.target_conc_type = target_conc_type
+    tester.change_type = 'absolute'
+    tester.source_delta = target_delta
+    tester.target_delta = target_delta
+    
+    ## Estimate source risk UCB
+    tester.estimate_risk_source(cal_losses)
+    source_upper_bound_plus_tol = tester.source_rejection_threshold
+    if (verbose):
+        print(f'source_upper_bound_plus_tol (\hatU_S(f) + \epsilon) : {source_upper_bound_plus_tol}\n')
+    
+    ## Sequentially estimate target risk LCB for each testpoint
+    T = len(test_losses)
+    target_lower_bounds = [] # np.zeros(T)
+    
+    for t in range(T):
+        tester.estimate_risk_target(test_losses[:(t+1)])
+        target_lower_bounds.append(tester.target_risk_lower_bound)
+        
+        if (verbose and t % 50 == 0):
+            print(f'target_lower_bounds[t={t}] (\hatL_T^{t}(f)): {target_lower_bounds[t]}')
+    
+        if (target_lower_bounds[t] > source_upper_bound_plus_tol and alarm_idx is None):
+            alarm_idx = t
+                        
+            if (verbose):
+                print(f'podkopaev_ramdas_algorithm1 alarm raised at test point {t}!\n')
+                
+            if (stop_criterion == 'first_alarm'):
+                return alarm_idx, source_upper_bound_plus_tol, target_lower_bounds
+            
+        if (stop_criterion == 'fixed_length' and t > max_length):
+            return alarm_idx, source_upper_bound_plus_tol, target_lower_bounds
+                
+    
+    return alarm_idx, source_upper_bound_plus_tol, np.array(target_lower_bounds)
+
+
+
+
+
+def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_type='betting', target_conc_type='betting', \
+                                verbose=False, eps_tol=0.0, source_delta=0.000005, target_delta = 0.000005,\
+                                stop_criterion='first_alarm', max_length=2500, batch_size=50):
+    """
+    Implementation of Podkopaev & Ramdas *changepoint detection* baseline,
+    i.e., see "From sequential testing to changepoint detection" in that paper.
+    
+    Runs algorithm1 of that paper at each test timepoint and returns the earliest stopping time.
+    
+    NOTE: Currently this implementation is TOO SLOW (due to calling podkopaev_ramdas_algorithm1 n_test times)
+          to compare to in an online data (ie, non minibatch) setting.
+
+    Parameters
+    ----------
+    cal_losses       : Array of losses for calibration (holdout) set; for evaluating set losses, should be 
+                      *mis*coverage indicators; (if evaluating point losses, would be conformity scores)
+    test_losses      : Array of losses for test (deployment) set; for evaluating set losses, should be 
+                      *mis*coverage indicators; (if evaluating point losses, would be conformity scores)
+    source_conc_type : Concentration used for source UCB
+    target_conc_type : Concentration used for target LCB
+    eps_tol          : Epsilon tolerance
+    stop_criterion   : Criterion for when to stop running the algorithm. in ['first_alarm', 'full_path', 'fixed_length']
+    fixed_length     : Max num test points to process when stop_criterion=='fixed_length'
+
+    Returns
+    ------- 
+    alarm_idx        : The index of the test point where alarm is first raised
+    source_UCB_tol   : Estimate of UCB on source risk plus tolerance: \hat{U}_S(f) + \epsilon
+    target_max_LCBs  : Array, estimates of LCB on target risk at each timestep \hat{L}_T^{t}(f)
+    """
+    
+    T = len(test_losses) ## num_test
+    testers_all = []
+    ## For each separate t-th run of algorithm 1, record the following:
+#     alarm_times = [] ## Alarm times for t-th run
+    alarm_idx = None
+    source_UCB_tol = None ## Source UCB+tolerance for t-th run
+    target_LCBs_all = [] ## Array of LCBs for t-th run 
+                     ## Note: target_LCBs[t] will be an array for timesteps t:(T-1) (of length T-t) 
+    target_max_LCBs = []
+    
+    ## Runs algorithm1 of that paper at each test timepoint and return the earliest stopping time.
+    alarm_min = T+1
+    for t in range(int(T/batch_size)):
+        ## Initiate new sequential testing object
+        ## Set up Drop_tester for computer UCB on source risk and LCB on target risk
+        testers_all.append(Drop_tester())
+        testers_all[t].eps_tol = eps_tol
+        testers_all[t].source_conc_type = source_conc_type
+        testers_all[t].target_conc_type = target_conc_type
+        testers_all[t].change_type = 'absolute'
+        testers_all[t].source_delta = target_delta
+        testers_all[t].target_delta = target_delta
+
+        ## Estimate source risk UCB, which will be the same for all testers
+        if (t == 0):
+            testers_all[t].estimate_risk_source(cal_losses)
+            source_UCB_tol = testers_all[t].source_rejection_threshold
+            if (verbose):
+                print(f'source_UCB_tol (\hatU_S(f) + \epsilon) : {source_UCB_tol}\n')
+        else:
+            testers_all[t].source_rejection_threshold = testers_all[0].source_rejection_threshold
+                    
+
+        ## Sequentially estimate target risk LCB for each testpoint
+        target_LCBs_all.append([]) ## Add new list for storing new test's LCBs
+        
+        ## Update LCB_t estimate for each i-th tester, i \in {0, ..., t}
+        ## Ie, at each time t, LCB for tester i is computed on points i:t
+        for i in range(len(testers_all)):
+#             print(f't = {t}, i = {i}, (i*batch_size) = {(i*batch_size)}, (t+1)*batch_size = {(t+1)*batch_size}')
+#             print(f'len(test_losses) {len(test_losses)}')
+            testers_all[i].estimate_risk_target(test_losses[(i*batch_size):((t+1)*batch_size)])
+            target_LCBs_all[i].append(testers_all[i].target_risk_lower_bound)
+            
+            ## Check alarm threshold
+            if (testers_all[i].target_risk_lower_bound > source_UCB_tol and alarm_idx is None):
+                alarm_idx = (t+1)*batch_size-1
+        
+        ## Record max target LCB for time t
+        target_LCBs_0_t = target_LCBs_all[:(t+1)] ## list of target_LCBs arrays for times 0, ..., t
+        target_LCBs_t = [target_LCBs_0_t[i][t-i] for i in range(len(target_LCBs_0_t))] ## list of LCB values at time t
+        target_max_LCBs.append(max(target_LCBs_t)) ## Maximum LCB value at time t
+        if (verbose and ((t % 10 == 0) or batch_size >= 10)):
+            print(f'target_max_LCBs[(t+1)*batch_size={(t+1)*batch_size}] (max(\hatL_T^t(f))): {target_max_LCBs[t]}')
+
+        
+        ## If alarm was raised at time t then can stop testing
+        if (alarm_idx is not None and stop_criterion=='first_alarm'):
+            break
+        
+        if (stop_criterion=='fixed_length' and (alarm_idx is not None and (t+1)*batch_size >= max_length)):
+            break
+            
+    
+    return alarm_idx, source_UCB_tol, np.array(target_max_LCBs)
+
+
+
+
 def pod_ram_mnist_cifar(model, ds_clean, ds_corrupted, tester, device, num_of_repeats=50, plot=True, 
                   plot_batch_size=50, plot_num_of_batches=40, setting=None, corruption_type='fog'):
     """
