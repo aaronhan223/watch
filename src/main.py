@@ -322,6 +322,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
 
             ## Storing p-values
             p_values_0_dict[method].append(p_vals)
+            # input to ramdas baseline
             coverage_0_dict[method].append(((q_lower <= score_0)&(q_upper >= score_0)))
             widths_0_dict[method].append(q_upper - q_lower)
             

@@ -160,11 +160,11 @@ def main():
             transforms.Normalize((0.1307,), (0.3081,))
         ])
         clean_data = torchvision.datasets.MNIST(
-            root='/cis/home/xhan56/code/wtr/data',
+            root=os.path.join(os.path.dirname(os.getcwd()), 'data'),
             train=False,
             transform=transform
         )
-        mnist_c_path = os.path.join('/cis/home/xhan56/code/wtr/data/mnist_c', corruption_type)
+        mnist_c_path = os.path.join(os.path.dirname(os.getcwd()), 'data/mnist_c', corruption_type)
         corrupted_data = NpyDataset(os.path.join(mnist_c_path, 'test_images.npy'), 
                                 os.path.join(mnist_c_path, 'test_labels.npy'), transform=transform)
     
@@ -181,8 +181,8 @@ def main():
             transforms.Normalize(mean, std)
         ])
         corrupted_data = NpyCIFAR10CDataset(
-            images_path=f'/cis/home/xhan56/code/wtr/data/CIFAR-10-C/{corruption_type}.npy',
-            labels_path='/cis/home/xhan56/code/wtr/data/CIFAR-10-C/labels.npy',
+            images_path=os.path.join(os.path.dirname(os.getcwd()), f'data/CIFAR-10-C/{corruption_type}.npy'),
+            labels_path=os.path.join(os.path.dirname(os.getcwd()), 'data/CIFAR-10-C/labels.npy'),
             severity=severity,
             transform=transform_corrupted
         )

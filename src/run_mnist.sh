@@ -16,7 +16,7 @@ do
         --corruption_type $corruption \
         --severity 1 \
         --mixture_ratio_val 0.1 \
-        --mixture_ratio_test 0.9 \
+        --mixture_ratio_test 0.1 \
         --val_set_size 1000 \
         --errs_window 1
 done
