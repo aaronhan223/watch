@@ -191,10 +191,6 @@ def train_and_evaluate(train_loader_0, test_loader_0, dataset0_name, epochs, dev
     W_0_dict = {}
     W_1_dict = {}
 
-    #for images, labels in train_loader_0:
-    #    print("train loader[0] shape : ", np.shape(images))
-    #    print("train loader[1] shape : ", np.shape(labels))
-
     # Train the model on the training set proper
     if dataset0_name == 'mnist':
         model = MLP(input_size=784, hidden_size=256, num_classes=10).to(device)
@@ -203,7 +199,6 @@ def train_and_evaluate(train_loader_0, test_loader_0, dataset0_name, epochs, dev
     optimizer = optim.Adam(model.parameters(), lr=lr)
     fit(model, epochs, train_loader_0, optimizer, setting, device)
     
-    clean_pred, clean_loss = eval_loss_prob(model, device, setting, val_loader_0, test_loader_0)
     if loader_1 is not None:
         # CTMs
         clean_pred, clean_loss = eval_loss_prob(model, device, setting, val_loader_0, test_loader_0)
@@ -248,7 +243,6 @@ def train_and_evaluate(train_loader_0, test_loader_0, dataset0_name, epochs, dev
 #             W_i = online_lik_ratio_estimates_images(X_cal, X_test_w_est, X_test_0_only, adapt_start=adapt_starts[i])
             raise Exception("Method not yet implemented")
 
-
         elif (method in ['fixed_cal_oracle']):
             ## Oracle one-step likelihood ratios
             ## np.shape(W_i) = (n_cal + T, )
@@ -260,8 +254,11 @@ def train_and_evaluate(train_loader_0, test_loader_0, dataset0_name, epochs, dev
 
         else:
             ## Else: Unweighted / uniform-weighted CTM
-            W_0_dict[method] = np.ones(len(cal_test_w_est_loader_0.dataset))
-            W_1_dict[method] = np.ones(len(cal_test_w_est_loader_1.dataset))
+            # TODO: @Drew I changed it from cal_test_w_est_loader_1.dataset to val_loader_0.dataset since cal_test_w_est_loader_1 for CTM is None
+            # could you double check?
+            pdb.set_trace()
+            W_0_dict[method] = np.ones(len(val_loader_0.dataset))
+            W_1_dict[method] = np.ones(len(val_loader_0.dataset))
 
     return cs_0, cs_1, clean_loss, corrupt_loss, W_0_dict, W_1_dict
 
@@ -369,7 +366,6 @@ def training_function(train_loader_0, test_loader_0, dataset0_name, epochs, devi
             verbose=verbose,
             method=methods
         )
-
         if m_1:
             retrain_m_count_1_dict[method] += 1
         if s_1:
@@ -436,7 +432,7 @@ if __name__ == "__main__":
     epochs = args.epochs
     lr = args.lr
     bs = args.bs
-    #train_val_test_split_only = args.train_val_test_split_only
+    # train_val_test_split_only = args.train_val_test_split_only
     train_val_test_split_only = False
     corruption_type = args.corruption_type
     severity = args.severity

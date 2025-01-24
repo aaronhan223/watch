@@ -7,17 +7,16 @@ do
         --dataset1 cifar10_c \
         --n_seeds 1 \
         --cs_type neg_log \
-        --methods baseline \
+        --methods fixed_cal_offline \
         --schedule variable \
-        --epochs 30 \
+        --epochs 1 \
         --lr 0.001 \
         --bs 64 \
         --init_phase 500 \
         --corruption_type $corruption \
         --severity 1 \
         --mixture_ratio_val 0.1 \
-        --mixture_ratio_test 0.9 \
+        --mixture_ratio_test 0.1 \
         --val_set_size 1000 \
-        --train_val_test_split_only \
         --errs_window 1
 done
