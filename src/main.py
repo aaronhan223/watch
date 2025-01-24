@@ -22,7 +22,7 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.neighbors import NearestNeighbors
 import matplotlib.pyplot as plt
 import math
-from podkopaev_ramdas.baseline_alg import podkopaev_ramdas_algorithm1
+from podkopaev_ramdas.baseline_alg import podkopaev_ramdas_algorithm1, podkopaev_ramdas_changepoint_detection
 import time
 
 
@@ -215,8 +215,8 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
     return cs_0, cs_1, W_dict, adapt_starts, n_cals, errors_0
 
 
-def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, adapt_start, alpha=0.1, cs_type='abs',\
-                  verbose=False, method='fixed_cal_oracle', depth=1):
+def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, adapt_start, n_cal, alpha=0.1,\
+                  cs_type='abs',verbose=False, method='fixed_cal_oracle', depth=1, init_ctm_on_cal_set=True):
     
     if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline', 'fixed_cal_dyn']):
         p_values, q_lower, q_upper = calculate_weighted_p_values_and_quantiles(conformity_score, W_i, adapt_start, alpha, cs_type, method)
@@ -224,8 +224,19 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
     else:
         p_values, q_lower, q_upper = calculate_p_values_and_quantiles(conformity_score, alpha, cs_type)
         
-    retrain_m, martingale_value = composite_jumper_martingale(p_values, verbose=verbose)
-#     retrain_m, martingale_value = simple_jumper_martingale(p_values, verbose=verbose)
+    print("init_ctm_on_cal_set : ", init_ctm_on_cal_set)
+        
+    if (init_ctm_on_cal_set):
+        ## Initialize CTM on calibration set, as in Vovk et al. 2021
+        retrain_m, martingale_value = composite_jumper_martingale(p_values, verbose=verbose)
+    else:
+        ## Initialize CTM at deployment time (ie, not including calibration set) to facilitate comparison to other methods
+#         p_values = p_values[n_cal:]
+#         q_lower  = q_lower[n_cal:]
+#         q_upper  = q_upper[n_cal:]
+        
+        retrain_m, martingale_value = composite_jumper_martingale(p_values[n_cal:], verbose=verbose)
+        
     
     
     if training_schedule == 'variable':
@@ -239,7 +250,10 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
     else:
         retrain_s, sigma = cusum_procedure(martingale_value, cu_confidence, verbose)
         
+
     return retrain_m, retrain_s, martingale_value, sigma, p_values, q_lower, q_upper
+
+
 
 
 
@@ -248,8 +262,9 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                       dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed', \
                       label_uptick=1, verbose=False, noise_mu=0, noise_sigma=0, methods=['fixed_cal_oracle', 'none'],\
                       depth=1,init_phase=500, num_folds=3, x_ctm_thresh=None, x_sched_thresh=None, alpha=0.1,\
-                      num_test_unshifted=500, pod_ram_bool=False, pr_source_conc_type='betting', pr_target_conc_type='betting', \
-                      pr_eps_tol=0.05, pr_source_delta=0.025, pr_target_delta = 0.025,pr_stop_criterion='first_alarm'):
+                      num_test_unshifted=500, run_PR_ST=True, run_PR_CD=False, pr_source_conc_type='betting', \
+                      pr_target_conc_type='betting', pr_eps_tol=0.05, pr_source_delta=0.025, \
+                      pr_target_delta = 0.025,pr_stop_criterion='first_alarm',init_ctm_on_cal_set=True):
     
     
     
@@ -290,10 +305,18 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     coverage_0_dict = {}
     widths_0_dict = {}
     
-    if pod_ram_bool:
-        pod_ram_alarm_0_dict, pod_ram_alarm_1_dict = {}, {}
-        source_UCB_tols_0_dict, source_UCB_tols_1_dict = {}, {}
-        target_LCBs_0_dict, target_LCBs_1_dict = {}, {}
+    if run_PR_ST:
+        ## Podkopaev Ramdas sequential testing method
+        PR_ST_alarm_0_dict, PR_ST_alarm_1_dict = {}, {}
+        PR_ST_source_UCB_tols_0_dict, PR_ST_source_UCB_tols_1_dict = {}, {}
+        PR_ST_target_LCBs_0_dict, PR_ST_target_LCBs_1_dict = {}, {}
+        
+    if run_PR_CD:
+        ## Podkopaev Ramdas changepoint detection method
+        PR_CD_alarm_0_dict, PR_CD_alarm_1_dict = {}, {}
+        PR_CD_source_UCB_tols_0_dict, PR_CD_source_UCB_tols_1_dict = {}, {}
+        PR_CD_target_LCBs_0_dict, PR_CD_target_LCBs_1_dict = {}, {}
+        
         
     
     for method in methods:
@@ -305,10 +328,15 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         coverage_0_dict[method] = []
         widths_0_dict[method] = []
         
-        if pod_ram_bool:
-            pod_ram_alarm_0_dict['PodRam_cp_'+method], pod_ram_alarm_1_dict['PodRam_cp_'+method] = [], []
-            source_UCB_tols_0_dict['PodRam_cp_'+method], source_UCB_tols_1_dict['PodRam_cp_'+method] = [], []
-            target_LCBs_0_dict['PodRam_cp_'+method], target_LCBs_1_dict['PodRam_cp_'+method] = [], []
+        if run_PR_ST:
+            PR_ST_alarm_0_dict['PR_ST_cp_'+method], PR_ST_alarm_1_dict['PR_ST_cp_'+method] = [], []
+            PR_ST_source_UCB_tols_0_dict['PR_ST_cp_'+method], PR_ST_source_UCB_tols_1_dict['PR_ST_cp_'+method] = [], []
+            PR_ST_target_LCBs_0_dict['PR_ST_cp_'+method], PR_ST_target_LCBs_1_dict['PR_ST_cp_'+method] = [], []
+            
+        if run_PR_CD:
+            PR_CD_alarm_0_dict['PR_CD_cp_'+method], PR_CD_alarm_1_dict['PR_CD_cp_'+method] = [], []
+            PR_CD_source_UCB_tols_0_dict['PR_CD_cp_'+method], PR_CD_source_UCB_tols_1_dict['PR_CD_cp_'+method] = [], []
+            PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method], PR_CD_target_LCBs_1_dict['PR_CD_cp_'+method] = [], []
             
 
 #     fold_martingales_0, fold_martingales_1 = [], []
@@ -319,15 +347,19 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
 #     coverage_0 = []
         
     for i, score_0 in enumerate(cs_0):
+        n_cal = n_cals[i]
             
         for method in methods:
             
             if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline', 'fixed_cal_dyn']):
-                m_0, s_0, martingale_value_0, sigma_0, p_vals, q_lower, q_upper = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, W_dict[method][i], adapt_starts[i], alpha, cs_type, verbose, method, depth)
+                m_0, s_0, martingale_value_0, sigma_0, p_vals, q_lower, q_upper = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, W_dict[method][i], adapt_starts[i], n_cal, alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set)
                 
             else:
                 ## Run baseline with uniform weights
-                m_0, s_0, martingale_value_0, sigma_0, p_vals, q_lower, q_upper = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, None, adapt_starts[i], alpha, cs_type, verbose, method, depth)
+                m_0, s_0, martingale_value_0, sigma_0, p_vals, q_lower, q_upper = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, None, adapt_starts[i], n_cal, alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set)
+                
+                
+            
 
             if m_0:
                 retrain_m_count_0_dict[method] += 1
@@ -336,22 +368,25 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                 
             martingales_0_dict[method].append(martingale_value_0)
             sigmas_0_dict[method].append(sigma_0)
+#             print("len(martingale_value_0) : ", len(martingale_value_0))
+#             print("len(sigma_0) : ", len(sigma_0))
 
-            ## Storing p-values, coverage, and widths
-            p_values_0_dict[method].append(p_vals)
+            ## Storing p-values, coverage, and widths                
+#             p_values_0_dict[method].append(p_vals)
             coverage_vals = ((q_lower <= score_0)&(q_upper >= score_0))
-            coverage_0_dict[method].append(coverage_vals)
-            widths_0_dict[method].append(q_upper - q_lower)
-            
-            
-            if pod_ram_bool:
+            width_vals = q_upper - q_lower
+#             coverage_0_dict[method].append(coverage_vals)
+#             widths_0_dict[method].append(q_upper - q_lower)
+                        
+            if run_PR_ST:
                 miscoverage_losses = 1 - coverage_vals
                 
                 ## Run Podkopaev Ramdas baseline on miscoverage losses for corresponding CP method
                 print("Running PodRam algorithm 1")
                 start_time = time.time()
         
-                alarm_test_idx, source_UCB_tol, target_LCBs = podkopaev_ramdas_algorithm1(miscoverage_losses[:n_cals[i]], \
+                PR_ST_alarm_test_idx, PR_ST_source_UCB_tol, PR_ST_target_LCBs = podkopaev_ramdas_algorithm1(\
+                                                                                      miscoverage_losses[:n_cals[i]], \
                                                                                       miscoverage_losses[n_cals[i]:], \
                                                                                       source_conc_type=pr_source_conc_type, \
                                                                                       target_conc_type=pr_target_conc_type, \
@@ -359,18 +394,61 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                                                                                       source_delta=pr_source_delta, \
                                                                                       target_delta=pr_target_delta,\
                                                                                       stop_criterion=pr_stop_criterion)
-                print("Completed PodRam algorithm 1; runtime in min = ", (time.time()-start_time)/60 )
+                print("Completed PodRam algorithm 1; runtime in min = ", (time.time()-start_time)/60)
                 
-                if (alarm_test_idx is None):
-                    pod_ram_alarm_0_dict['PodRam_cp_'+method].append(None)
+                
+                ## Record results for PodRam sequential testing baseline
+                if (PR_ST_alarm_test_idx is None):
+                    PR_ST_alarm_0_dict['PR_ST_cp_'+method].append(None)
                 else:
-                    pod_ram_alarm_0_dict['PodRam_cp_'+method].append(alarm_test_idx)
-                source_UCB_tols_0_dict['PodRam_cp_'+method].append(source_UCB_tol)
-                target_LCBs_0_dict['PodRam_cp_'+method].append(target_LCBs)
+                    PR_ST_alarm_0_dict['PR_ST_cp_'+method].append(PR_ST_alarm_test_idx)
+                    
+                PR_ST_source_UCB_tols_0_dict['PR_ST_cp_'+method].append(PR_ST_source_UCB_tol)
+                PR_ST_target_LCBs_0_dict['PR_ST_cp_'+method].append(PR_ST_target_LCBs)
+                
+                
+                print("Running PodRam changepoint detection algo")
+                start_time = time.time()
+            
+            if run_PR_CD:
+                PR_CD_alarm_test_idx, PR_CD_source_UCB_tol, PR_CD_target_LCBs = podkopaev_ramdas_changepoint_detection(\
+                                                                                      miscoverage_losses[:n_cals[i]], \
+                                                                                      miscoverage_losses[n_cals[i]:], \
+                                                                                      source_conc_type=pr_source_conc_type, \
+                                                                                      target_conc_type=pr_target_conc_type, \
+                                                                                      eps_tol=pr_eps_tol, \
+                                                                                      source_delta=pr_source_delta, \
+                                                                                      target_delta=pr_target_delta,\
+                                                                                      stop_criterion=pr_stop_criterion)
+            
+                print("Completed PodRam changepoint detection algo; runtime in min = ", (time.time()-start_time)/60)
+                
+                ## Record results for PodRam changepoint detection method
+                if (PR_CD_alarm_test_idx is None):
+                    PR_CD_alarm_0_dict['PR_CD_cp_'+method].append(None)
+                else:
+                    PR_CD_alarm_0_dict['PR_CD_cp_'+method].append(PR_CD_alarm_test_idx)
+                    
+                PR_CD_source_UCB_tols_0_dict['PR_CD_cp_'+method].append(PR_CD_source_UCB_tol)
+                PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method].append(PR_CD_target_LCBs)
                 
 
 #             coverage_0_dict[method].append(p_vals <= 0.9)
 
+            if (not init_ctm_on_cal_set):
+                p_vals = p_vals[n_cal:]
+                coverage_vals = coverage_vals[n_cal:]
+                width_vals = width_vals[n_cal:]
+
+            p_values_0_dict[method].append(p_vals)
+            coverage_0_dict[method].append(coverage_vals)
+            widths_0_dict[method].append(width_vals)
+                
+         
+        if (not init_ctm_on_cal_set):
+            cs_0[i] = cs_0[i][n_cal:]
+            errors_0[i] = errors_0[i][n_cal:] 
+    
     ## Note: 
     for i, score_1 in enumerate(cs_1):
         for method in methods:
@@ -384,10 +462,11 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
             sigmas_1_dict[method].append(sigma_1)
             
             
-            if pod_ram_bool:
+            if run_PR_ST:
                 raise ("Error: have not implemented PodRamdas baseline for dataset1. Need to also compute CP quantiles and coverage values.")
-                
-    
+              
+            
+   
     ### Don't need this part for plotting purposes ###
     # Decide to retrain based on two out of three martingales exceeding the threshold
     # if retrain_m_count_0 >= 2 or retrain_s_count_0 >= 2:
@@ -415,8 +494,11 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     min_len = np.min([len(sigmas_0_dict[method][i]) for i in range(0, len(sigmas_0_dict[method]))])
     
     paths_dict = {}
-    PodRam_paths_dict = {}
-    PodRam_paths=None
+    PR_ST_paths_dict = {}
+    PR_ST_paths=None
+    
+    PR_CD_paths_dict = {}
+    PR_CD_paths=None
     
     for method in methods:
     
@@ -426,6 +508,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         ## (W)CTM methods:
         sigmas_0 = sigmas_0_dict[method]
         sigmas_1 = sigmas_1_dict[method]
+        print("min_len : ", min_len)
         for k in range(0, len(sigmas_0_dict[method])):
             paths['sigmas_0_'+str(k)] = sigmas_0_dict[method][k][0:min_len]
             paths['martingales_0_'+str(k)] = martingales_0_dict[method][k][0:min_len]
@@ -445,22 +528,31 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     
         
         
-        if pod_ram_bool:
-            ## PodRam_cp baseline method:
-#             print("len(target_LCBs_0_dict['PodRam_cp_'+method]) ", len(target_LCBs_0_dict['PodRam_cp_'+method]))
-#             print("len(target_LCBs_0_dict['PodRam_cp_'+method][0]) ", len(target_LCBs_0_dict['PodRam_cp_'+method][0]))
-#             pr_min_len = np.min([len(lcbs[i]) for lcbs in target_LCBs_0_dict['PodRam_cp_'+method]])
-            pr_min_len = len(target_LCBs_0_dict['PodRam_cp_'+method][0])
-            PodRam_paths = pd.DataFrame(np.c_[np.repeat(seed, pr_min_len), np.arange(0, pr_min_len)], columns = ['itrial', 'obs_idx'])
-            for k in range(0, len(source_UCB_tols_0_dict['PodRam_cp_'+method])):
-                PodRam_paths['alarm_0_'+str(k)] = pod_ram_alarm_0_dict['PodRam_cp_'+method][k]
-                PodRam_paths['UCBtol_0_'+str(k)] = source_UCB_tols_0_dict['PodRam_cp_'+method][k]
-                PodRam_paths['LCB_0_'+str(k)] = target_LCBs_0_dict['PodRam_cp_'+method][k][0:pr_min_len]
+        if run_PR_ST:
+            ## PR_ST_cp baseline method:
+            PR_ST_min_len = len(PR_ST_target_LCBs_0_dict['PR_ST_cp_'+method][0])
+            PR_ST_paths = pd.DataFrame(np.c_[np.repeat(seed, PR_ST_min_len), np.arange(0, PR_ST_min_len)], columns = ['itrial', 'obs_idx'])
+            for k in range(0, len(PR_ST_source_UCB_tols_0_dict['PR_ST_cp_'+method])):
+                PR_ST_paths['PR_ST_alarm_0_'+str(k)] = PR_ST_alarm_0_dict['PR_ST_cp_'+method][k]
+                PR_ST_paths['PR_ST_UCBtol_0_'+str(k)] = PR_ST_source_UCB_tols_0_dict['PR_ST_cp_'+method][k]
+                PR_ST_paths['PR_ST_LCB_0_'+str(k)] = PR_ST_target_LCBs_0_dict['PR_ST_cp_'+method][k][0:PR_ST_min_len]
                 
-            PodRam_paths_dict['PodRam_cp_'+method] = PodRam_paths
+            PR_ST_paths_dict['PR_ST_cp_'+method] = PR_ST_paths
+            
+        if run_PR_CD:
+            ## PR_CD_cp baseline method:
+            PR_CD_min_len = len(PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method][0])
+            PR_CD_paths = pd.DataFrame(np.c_[np.repeat(seed, PR_CD_min_len), np.arange(0, PR_CD_min_len)], columns = ['itrial', 'obs_idx'])
+            for k in range(0, len(PR_CD_source_UCB_tols_0_dict['PR_CD_cp_'+method])):
+                PR_CD_paths['PR_CD_alarm_0_'+str(k)] = PR_CD_alarm_0_dict['PR_CD_cp_'+method][k]
+                PR_CD_paths['PR_CD_UCBtol_0_'+str(k)] = PR_CD_source_UCB_tols_0_dict['PR_CD_cp_'+method][k]
+                PR_CD_paths['PR_CD_LCB_0_'+str(k)] = PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method][k][0:PR_CD_min_len]
+                
+            PR_CD_paths_dict['PR_CD_cp_'+method] = PR_CD_paths
+            
             
     
-    return paths_dict, PodRam_paths_dict
+    return paths_dict, PR_ST_paths_dict, PR_CD_paths_dict
 
         
 if __name__ == "__main__":
@@ -496,14 +588,22 @@ if __name__ == "__main__":
     ## Params only used for fixed_cal_dyn method:
     parser.add_argument('--x_ctm_thresh', type=float, default=3.1623, help="Threshold X-test martingale value that triggers adaptation for fixed_cal_dyn when X-CTM value exceeds it. Default: sqrt(10)")
     parser.add_argument('--x_sched_thresh', type=int, default=1000, help="Threshold ratio that triggers adaptation for fixed_cal_dyn when X-CTM value exceeds it.")
-    parser.add_argument('--num_test_unshifted', type=int, default=500, help="Number of test points that are not shifted; ie, num test points prior to the changepoint occuring")
-    parser.add_argument('--pod_ram_bool', type=bool, default=False, help="Whether to run PodkopaevRamdas baseline.")
+    parser.add_argument('--num_test_unshifted', type=int, default=1000, help="Number of test points that are not shifted; ie, num test points prior to the changepoint occuring")
+    parser.add_argument('--run_PR_ST', dest='run_PR_ST', action='store_true', help="Whether to run PodkopaevRamdas sequential testing (their algorithm 1) baseline.")
+    parser.add_argument('--run_PR_CD', dest='run_PR_CD', action='store_true', help="Whether to run PodkopaevRamdas changepoint detection baseline (runs algorithm 1 many times, can be slow).")
     parser.add_argument('--pr_source_conc_type', type=str, default='betting', help="PodRam Concentration type used for source data.")
     parser.add_argument('--pr_target_conc_type', type=str, default='betting', help="PodRam Concentration type used for target data.")
     parser.add_argument('--pr_eps_tol', type=float, default=0.0, help="PodRam epsilon tolerance.")
-    parser.add_argument('--pr_source_delta', type=float, default=1/(2*10**3), help="PodRam source delta.")
-    parser.add_argument('--pr_target_delta', type=float, default=1/(2*10**3), help="PodRam target delta.")
+    parser.add_argument('--pr_source_delta', type=float, default=1/200, help="PodRam source delta.")
+    parser.add_argument('--pr_target_delta', type=float, default=1/200, help="PodRam target delta.")
     parser.add_argument('--pr_stop_criterion', type=str, default='first_alarm', help="Stopping criterion for PodRam Algorithm 1 baseline.")
+#     parser.add_argument('--init_ctm_on_cal_set', type=bool, default=True, help="Whether to initialize conformal martingales on the calibration set (as in Vovk et al); false := initialize at deployment time instead for comparison with Ramdas")
+    parser.add_argument('--init_on_cal', dest='init_ctm_on_cal_set', action='store_true',
+                    help='Set the init_ctm_on_cal_set flag value to True.')
+    parser.add_argument('--init_on_test', dest='init_ctm_on_cal_set', action='store_false',
+                    help='Set the init_ctm_on_cal_set flag value to False.')
+    parser.set_defaults(init_ctm_on_cal_set=True, run_PR_ST=False, run_PR_CD=False)
+   
 
     ## python main.py dataset muh_fun_name bias
     ## python main.py --dataset0 white_wine --dataset1 red_wine --muh_fun_name NN --d0_shift_type covariate --bias 0.53
@@ -528,7 +628,11 @@ if __name__ == "__main__":
     x_ctm_thresh = args.x_ctm_thresh
     x_sched_thresh = args.x_sched_thresh
     num_test_unshifted = args.num_test_unshifted
-    pod_ram_bool = args.pod_ram_bool
+    init_ctm_on_cal_set = args.init_ctm_on_cal_set
+    run_PR_ST = args.run_PR_ST
+    run_PR_CD = args.run_PR_CD
+    
+    print("init_ctm_on_cal_set from args : ", init_ctm_on_cal_set)
     
     pr_source_conc_type=args.pr_source_conc_type
     pr_target_conc_type=args.pr_target_conc_type
@@ -537,7 +641,8 @@ if __name__ == "__main__":
     pr_target_delta=args.pr_target_delta
     pr_stop_criterion=args.pr_stop_criterion
     
-    print("pod_ram_bool : ", pod_ram_bool)
+    print("run_PR_ST : ", run_PR_ST)
+    print("run_PR_CD : ", run_PR_CD)
     
     ## Load datasets into dataframes
     dataset0 = eval(f'get_{dataset0_name}_data()')
@@ -547,17 +652,20 @@ if __name__ == "__main__":
         dataset1 = None
     
     paths_dict_all = {}
-    PodRam_paths_dict_all = {}
+    PR_ST_paths_dict_all = {}
+    PR_CD_paths_dict_all = {}
     
     for method in methods:
         paths_dict_all[method] = pd.DataFrame()
         
-        if pod_ram_bool:
-            PodRam_paths_dict_all['PodRam_cp_'+method] = pd.DataFrame()
+        if run_PR_ST:
+            PR_ST_paths_dict_all['PR_ST_cp_'+method] = pd.DataFrame()
+        if run_PR_CD:
+            PR_CD_paths_dict_all['PR_CD_cp_'+method] = pd.DataFrame()
 #     paths_all = pd.DataFrame()
     
     methods_all = "_".join(methods)
-    setting = '{}-{}-{}-shift_bias{}-label_shift{}-err_win{}-cs_type{}-nseeds{}-W{}-numTestUnshifted{}-test0Size{}'.format(
+    setting = '{}-{}-{}-shift_bias{}-label_shift{}-err_win{}-cs_type{}-nseeds{}-W{}-numTestUnshifted{}-test0Size{}-initCTMcal{}'.format(
         dataset0_name,
         muh_fun_name,
         dataset0_shift_type,
@@ -568,10 +676,11 @@ if __name__ == "__main__":
         n_seeds,
         methods_all,
         num_test_unshifted,
-        test0_size
+        test0_size,
+        init_ctm_on_cal_set
     )
     
-    if pod_ram_bool:
+    if run_PR_ST:
         pod_ram_setting = 'sConc{}-tConc{}-eTol{}-sDelta{}-tDelta{}-stop{}'.format(
             pr_source_conc_type, 
             pr_target_conc_type,
@@ -585,7 +694,7 @@ if __name__ == "__main__":
     
     for seed in tqdm(range(0, n_seeds)):
         # training_schedule = ['variable', 'fix']
-        paths_dict_curr, PodRam_paths_dict_curr = training_function(
+        paths_dict_curr, PR_ST_paths_dict_curr, PR_CD_paths_dict_curr = training_function(
             dataset0, 
             dataset0_name, 
             dataset1, 
@@ -608,42 +717,57 @@ if __name__ == "__main__":
             x_ctm_thresh=x_ctm_thresh,
             x_sched_thresh=x_sched_thresh,
             num_test_unshifted=num_test_unshifted,
-            pod_ram_bool=pod_ram_bool,
+            run_PR_ST=run_PR_ST,
+            run_PR_CD=run_PR_CD,
             pr_source_conc_type=pr_source_conc_type,
             pr_target_conc_type=pr_target_conc_type,
             pr_eps_tol=pr_eps_tol,
             pr_source_delta=pr_source_delta,
             pr_target_delta=pr_target_delta,
-            pr_stop_criterion=pr_stop_criterion
+            pr_stop_criterion=pr_stop_criterion,
+            init_ctm_on_cal_set=init_ctm_on_cal_set
         )
         for method in methods:
             paths_dict_all[method] = pd.concat([paths_dict_all[method], paths_dict_curr[method]], ignore_index=True)
             
-            if pod_ram_bool:
-                PodRam_paths_dict_all['PodRam_cp_'+method] = pd.concat([PodRam_paths_dict_all['PodRam_cp_'+method], \
-                                                                        PodRam_paths_dict_curr['PodRam_cp_'+method]], ignore_index=True)
+            if run_PR_ST:
+                PR_ST_paths_dict_all['PR_ST_cp_'+method] = pd.concat([PR_ST_paths_dict_all['PR_ST_cp_'+method], \
+                                                                      PR_ST_paths_dict_curr['PR_ST_cp_'+method]],\
+                                                                     ignore_index=True)
+            if run_PR_CD:
+                PR_CD_paths_dict_all['PR_CD_cp_'+method] = pd.concat([PR_CD_paths_dict_all['PR_CD_cp_'+method], \
+                                                                      PR_CD_paths_dict_curr['PR_CD_cp_'+method]],\
+                                                                     ignore_index=True)
         
     ## Save all results together
     results_all = paths_dict_all[methods[0]]
     results_all['method'] = methods[0]
     
-    if pod_ram_bool:
-        PodRam_results_all = PodRam_paths_dict_all['PodRam_cp_'+methods[0]]
-        PodRam_results_all['method'] = 'PodRam_cp_'+methods[0]
+    if run_PR_ST:
+        PR_ST_results_all = PR_ST_paths_dict_all['PR_ST_cp_'+methods[0]]
+        PR_ST_results_all['method'] = 'PR_ST_cp_'+methods[0]
+    if run_PR_CD:
+        PR_CD_results_all = PR_CD_paths_dict_all['PR_CD_cp_'+methods[0]]
+        PR_CD_results_all['method'] = 'PR_CD_cp_'+methods[0]
     
     for method in methods[1:]:
         paths_dict_all[method]['method'] = method
         results_all = pd.concat([results_all, paths_dict_all[method]], ignore_index=True)
         
-        if pod_ram_bool:
-            PodRam_paths_dict_all['PodRam_cp_'+method]['method'] = 'PodRam_cp_'+method
-            PodRam_results_all = pd.concat([PodRam_results_all, PodRam_paths_dict_all['PodRam_cp_'+method]], ignore_index=True)
+        if run_PR_ST:
+            PR_ST_paths_dict_all['PR_ST_cp_'+method]['method'] = 'PR_ST_cp_'+method
+            PR_ST_results_all = pd.concat([PR_ST_results_all, PR_ST_paths_dict_all['PR_ST_cp_'+method]], ignore_index=True)
+        if run_PR_CD:
+            PR_CD_paths_dict_all['PR_CD_cp_'+method]['method'] = 'PR_CD_cp_'+method
+            PR_CD_results_all = pd.concat([PR_CD_results_all, PR_CD_paths_dict_all['PR_CD_cp_'+method]], ignore_index=True)
+        
         
     results_all.to_csv(f'../results/{setting}.csv')
     
-    if pod_ram_bool:
-        PodRam_results_all.to_csv(f'../results/{setting}_PodRam-{pod_ram_setting}.csv')
-    
+    if run_PR_ST:
+        PR_ST_results_all.to_csv(f'../results/{setting}_PR_ST-{pod_ram_setting}.csv')
+    if run_PR_CD:
+        PR_CD_results_all.to_csv(f'../results/{setting}_PR_CD-{pod_ram_setting}.csv')
     
     
     ## Preparation for plotting
@@ -660,11 +784,15 @@ if __name__ == "__main__":
     widths_0_upper_q_dict = {}
     pvals_0_means_dict = {}
     pvals_0_stderr_dict = {}
-    p_vals_cal_dict = {}
-    p_vals_test_dict = {}
+    p_vals_pre_change_dict = {}
+    p_vals_post_change_dict = {}
     
     
-    change_point_index = len(dataset0)*(1-test0_size)/max(2,num_folds)+num_test_unshifted
+    if (init_ctm_on_cal_set):
+        ## Changepoint index is calibration set size + num_test_unshifted
+        change_point_index = len(dataset0)*(1-test0_size)/max(2,num_folds)+num_test_unshifted
+    else:
+        change_point_index = num_test_unshifted
     
     for method in methods:
     
@@ -789,18 +917,18 @@ if __name__ == "__main__":
         
         
         ## Saving p-values together for histograms
-        paths_cal = paths_all[paths_all['obs_idx'] < change_point_index]
-        paths_test = paths_all[paths_all['obs_idx'] >= change_point_index]
+        paths_pre_change = paths_all[paths_all['obs_idx'] < change_point_index]
+        paths_post_change = paths_all[paths_all['obs_idx'] >= change_point_index]
         
-        p_vals_cal = paths_cal['pvals_0_0']
-        p_vals_test = paths_test['pvals_0_0']
+        p_vals_pre_change = paths_pre_change['pvals_0_0']
+        p_vals_post_change = paths_post_change['pvals_0_0']
         
         for i in range(1, num_folds):
-            p_vals_cal = np.concatenate((p_vals_cal, paths_cal[f'pvals_0_{i}']))
-            p_vals_test = np.concatenate((p_vals_test, paths_test[f'pvals_0_{i}']))
+            p_vals_pre_change = np.concatenate((p_vals_pre_change, paths_pre_change[f'pvals_0_{i}']))
+            p_vals_post_change = np.concatenate((p_vals_post_change, paths_post_change[f'pvals_0_{i}']))
             
-        p_vals_cal_dict[method] = p_vals_cal
-        p_vals_test_dict[method] = p_vals_test
+        p_vals_pre_change_dict[method] = p_vals_pre_change
+        p_vals_post_change_dict[method] = p_vals_post_change
     
         
     plot_martingale_paths(
@@ -818,8 +946,8 @@ if __name__ == "__main__":
         errors_1_means_dict=errors_1_means_dict,
         errors_0_stderr_dict=errors_0_stderr_dict,
         errors_1_stderr_dict=errors_1_stderr_dict,
-        p_vals_cal_dict=p_vals_cal_dict,
-        p_vals_test_dict=p_vals_test_dict,
+        p_vals_pre_change_dict=p_vals_pre_change_dict,
+        p_vals_post_change_dict=p_vals_post_change_dict,
         errs_window=errs_window,
         change_point_index=change_point_index,
         title="Average paths of Shiryaev-Roberts Procedure",
@@ -842,6 +970,7 @@ if __name__ == "__main__":
         widths_0_lower_q_dict=widths_0_lower_q_dict,
         widths_0_upper_q_dict=widths_0_upper_q_dict,
         methods=methods,
-        schedule=training_schedule
+        schedule=training_schedule,
+        num_test_unshifted=num_test_unshifted
     )
     print('\nProgram done!')

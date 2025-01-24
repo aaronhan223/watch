@@ -11,7 +11,7 @@ import pdb
 
 def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betting', target_conc_type='betting', \
                                 verbose=False, eps_tol=0.0, source_delta=0.005, target_delta = 0.005,\
-                                stop_criterion='first_alarm', max_length=2000):
+                                stop_criterion='fixed_length', max_length=2500):
     """
     Implementation of Podkopaev & Ramdas *sequential testing* baseline, i.e., algorithm 1 in that paper. 
 
@@ -83,8 +83,8 @@ def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betti
 
 
 def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_type='betting', target_conc_type='betting', \
-                                verbose=False, eps_tol=0.0, source_delta=0.005, target_delta = 0.005,\
-                                stop_criterion='first_alarm', max_length=2000):
+                                verbose=False, eps_tol=0.0, source_delta=0.000005, target_delta = 0.000005,\
+                                stop_criterion='first_alarm', max_length=2500, batch_size=50):
     """
     Implementation of Podkopaev & Ramdas *changepoint detection* baseline,
     i.e., see "From sequential testing to changepoint detection" in that paper.
@@ -103,7 +103,8 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
     source_conc_type : Concentration used for source UCB
     target_conc_type : Concentration used for target LCB
     eps_tol          : Epsilon tolerance
-
+    stop_criterion   : Criterion for when to stop running the algorithm. in ['first_alarm', 'full_path', 'fixed_length']
+    fixed_length     : Max num test points to process when stop_criterion=='fixed_length'
 
     Returns
     ------- 
@@ -151,28 +152,28 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
         ## Update LCB_t estimate for each i-th tester, i \in {0, ..., t}
         ## Ie, at each time t, LCB for tester i is computed on points i:t
         for i in range(len(testers_all)):
-            testers_all[i].estimate_risk_target(test_losses[i:(t+1)])
+            testers_all[i].estimate_risk_target(test_losses[(i*batch_size):((t+1)*batch_size)])
             target_LCBs_all[i].append(testers_all[i].target_risk_lower_bound)
-            
-#             if (verbose and t % 50 == 0):
-#                 print(f'target_lower_bounds[t={t}] (\hatL_T^{t}(f)): {target_lower_bounds[t]}')
             
             ## Check alarm threshold
             if (testers_all[i].target_risk_lower_bound > source_UCB_tol and alarm_idx is None):
-                alarm_idx = t
+                alarm_idx = (t+1)*batch_size-1
         
-        ## If alarm was raised at time t then can stop testing
-        if (alarm_idx is not None):
-            break
-            
-            
         ## Record max target LCB for time t
         target_LCBs_0_t = target_LCBs_all[:(t+1)] ## list of target_LCBs arrays for times 0, ..., t
         target_LCBs_t = [target_LCBs_0_t[i][t-i] for i in range(len(target_LCBs_0_t))] ## list of LCB values at time t
         target_max_LCBs.append(max(target_LCBs_t)) ## Maximum LCB value at time t
-        if (verbose and t % 50 == 0):
-            print(f'target_max_LCBs[t={t}] (max(\hatL_T^{t}(f))): {target_max_LCBs[t]}')
+        if (verbose and (t % 10 == 0) or batch_size >= 10):
+            print(f'target_max_LCBs[(t+1)*batch_size={(t+1)*batch_size}] (max(\hatL_T^t(f))): {target_max_LCBs[t]}')
 
+        
+        ## If alarm was raised at time t then can stop testing
+        if (alarm_idx is not None and stop_criterion=='first_alarm'):
+            break
+        
+        if (alarm_idx is not None and stop_criterion=='fixed_length' and (t+1)*batch_size >= max_length):
+            break
+            
     
     return alarm_idx, source_UCB_tol, np.array(target_max_LCBs)
 
