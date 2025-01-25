@@ -151,7 +151,7 @@ def eval_loss_prob(model, device, setting, loader_0, loader_1, binary_classifier
 
 
 
-def fit(model, epochs, train_loader, val_loader_0, test_loader, optimizer, setting, device):
+def fit(model, epochs, train_loader, optimizer, setting, device):
     """
     Train the model on the training set.
     """
@@ -175,8 +175,8 @@ def fit(model, epochs, train_loader, val_loader_0, test_loader, optimizer, setti
 
 
 
-def train_and_evaluate(train_loader_0, val_loader_0, test_loader_0, dataset0_name, epochs, device, lr, setting, loader_1=None,
-                       cal_test_w_est_loader_0=None, cal_test_w_est_loader_1=None, val_loader_mixed=None, test_loader_mixed=None, verbose=False, 
+def train_and_evaluate(train_loader_0, test_loader_0, dataset0_name, epochs, device, lr, setting, loader_1=None, val_loader_0=None,
+                       cal_test_w_est_loader_0=None, cal_test_w_est_loader_1=None, test_loader_mixed=None, verbose=False, 
                        methods=['baseline'], init_phase=500, epsilon=1e-9):
     '''
     baseline uniform weights:
@@ -191,27 +191,22 @@ def train_and_evaluate(train_loader_0, val_loader_0, test_loader_0, dataset0_nam
     W_0_dict = {}
     W_1_dict = {}
 
-    #for images, labels in train_loader_0:
-    #    print("train loader[0] shape : ", np.shape(images))
-    #    print("train loader[1] shape : ", np.shape(labels))
-
     # Train the model on the training set proper
     if dataset0_name == 'mnist':
         model = MLP(input_size=784, hidden_size=256, num_classes=10).to(device)
     elif dataset0_name == 'cifar10':
         model = MLP(input_size=3*32*32, hidden_size=1024, num_classes=10).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    fit(model, epochs, train_loader_0, val_loader_0, test_loader_0, optimizer, setting, device)
+    fit(model, epochs, train_loader_0, optimizer, setting, device)
     
-    clean_pred, clean_loss = eval_loss_prob(model, device, setting, val_loader_0, test_loader_0)
     if loader_1 is not None:
         # CTMs
+        clean_pred, clean_loss = eval_loss_prob(model, device, setting, val_loader_0, test_loader_0)
         corrupt_pred, corrupt_loss = eval_loss_prob(model, device, setting, val_loader_0, loader_1)
     else:
         # WCTMs
-        ## TODO: 
-        breakpoint()
-        corrupt_pred, corrupt_loss = eval_loss_prob(model, device, setting, val_loader_mixed, test_loader_mixed)
+        clean_pred, clean_loss = eval_loss_prob(model, device, setting, cal_test_w_est_loader_0, test_loader_0)
+        corrupt_pred, corrupt_loss = eval_loss_prob(model, device, setting, cal_test_w_est_loader_1, test_loader_mixed)
 
     ### val + test conformity scores: cs_0 is clean val + test, cs_1 is corrupted val + test
     if cs_type == 'probability':
@@ -220,7 +215,6 @@ def train_and_evaluate(train_loader_0, val_loader_0, test_loader_0, dataset0_nam
     elif cs_type == 'neg_log':
         cs_0 = -np.log(clean_pred + epsilon)
         cs_1 = -np.log(corrupt_pred + epsilon)
-    #pdb.set_trace()
     
     #### Computing (unnormalized) weights
     # TODO: @Drew, I removed the weight computation module since it requires special design for image data
@@ -234,6 +228,7 @@ def train_and_evaluate(train_loader_0, val_loader_0, test_loader_0, dataset0_nam
         if (method in ['fixed_cal_offline']):
             ###
             print("device : ", device)
+            pdb.set_trace()
             W_0_dict[method] = offline_lik_ratio_estimates_images(cal_test_w_est_loader_0, val_loader_0, test_loader_0, dataset0_name, device=device, setting=setting)
             W_1_dict[method] = offline_lik_ratio_estimates_images(cal_test_w_est_loader_1, val_loader_mixed, test_loader_mixed, dataset0_name, device=device, setting=setting)
 
@@ -248,7 +243,6 @@ def train_and_evaluate(train_loader_0, val_loader_0, test_loader_0, dataset0_nam
 #             W_i = online_lik_ratio_estimates_images(X_cal, X_test_w_est, X_test_0_only, adapt_start=adapt_starts[i])
             raise Exception("Method not yet implemented")
 
-
         elif (method in ['fixed_cal_oracle']):
             ## Oracle one-step likelihood ratios
             ## np.shape(W_i) = (n_cal + T, )
@@ -260,10 +254,11 @@ def train_and_evaluate(train_loader_0, val_loader_0, test_loader_0, dataset0_nam
 
         else:
             ## Else: Unweighted / uniform-weighted CTM
-            W_0_dict[method] = np.ones(len(cal_test_w_est_loader_0.dataset))
-            W_1_dict[method] = np.ones(len(cal_test_w_est_loader_1.dataset))
-
-
+            # TODO: @Drew I changed it from cal_test_w_est_loader_1.dataset to val_loader_0.dataset since cal_test_w_est_loader_1 for CTM is None
+            # could you double check?
+            pdb.set_trace()
+            W_0_dict[method] = np.ones(len(val_loader_0.dataset))
+            W_1_dict[method] = np.ones(len(val_loader_0.dataset))
 
     return cs_0, cs_1, clean_loss, corrupt_loss, W_0_dict, W_1_dict
 
@@ -288,7 +283,7 @@ def retrain_count(conformity_score, training_schedule, sr_threshold=1e6, cu_conf
     return retrain_m, retrain_s, martingale_value, sigma, p_values
 
 
-def training_function(train_loader_0, val_loader_0, test_loader_0, dataset0_name, epochs, device, lr, setting, loader_1=None,
+def training_function(train_loader_0, test_loader_0, dataset0_name, epochs, device, lr, setting, val_loader_0=None, loader_1=None,
                       schedule='variable', cal_test_w_est_loader_0=None, cal_test_w_est_loader_1=None, val_loader_mixed=None, test_loader_mixed=None, 
                       verbose=False, methods=['baseline'], init_phase=500):
     
@@ -310,11 +305,9 @@ def training_function(train_loader_0, val_loader_0, test_loader_0, dataset0_name
         # should return weights here
         cs_0, cs_1, clean_loss, corrupt_loss, W_0_dict, W_1_dict = train_and_evaluate(
             train_loader_0=train_loader_0,
-            val_loader_0=val_loader_0,
             test_loader_0=test_loader_0,
             cal_test_w_est_loader_0=cal_test_w_est_loader_0,
             cal_test_w_est_loader_1=cal_test_w_est_loader_1,
-            val_loader_mixed=val_loader_mixed,
             test_loader_mixed=test_loader_mixed,
             dataset0_name=dataset0_name,
             epochs=epochs,
@@ -373,7 +366,6 @@ def training_function(train_loader_0, val_loader_0, test_loader_0, dataset0_name
             verbose=verbose,
             method=methods
         )
-
         if m_1:
             retrain_m_count_1_dict[method] += 1
         if s_1:
@@ -427,6 +419,7 @@ if __name__ == "__main__":
     parser.add_argument('--mixture_ratio_val', type=float, default=0.1, help='Mixture ratio of corruption for validation set.')
     parser.add_argument('--mixture_ratio_test', type=float, default=0.9, help='Mixture ratio of corruption for test set.')
     parser.add_argument('--val_set_size', type=int, default=10000, help='Validation set size.')
+    parser.add_argument('--data_path', type=str, default='/cis/home/xhan56/code', help='Dataset path.')
 
     args = parser.parse_args()
     dataset0_name = args.dataset0
@@ -439,7 +432,7 @@ if __name__ == "__main__":
     epochs = args.epochs
     lr = args.lr
     bs = args.bs
-    #train_val_test_split_only = args.train_val_test_split_only
+    # train_val_test_split_only = args.train_val_test_split_only
     train_val_test_split_only = False
     corruption_type = args.corruption_type
     severity = args.severity
@@ -480,13 +473,15 @@ if __name__ == "__main__":
     for seed in tqdm(range(0, n_seeds)):
         set_seed(seed)
         if dataset0_name == 'mnist':
-            loaders = get_mnist_data(batch_size=bs, init_phase=init_phase, train_val_test_split_only=train_val_test_split_only, val_set_size=val_set_size)
+            loaders = get_mnist_data(batch_size=bs, init_phase=init_phase, train_val_test_split_only=train_val_test_split_only, 
+                                     val_set_size=val_set_size)
             loader_1 = get_mnist_c_data(batch_size=bs, corruption_type=corruption_type, train_val_test_split_only=train_val_test_split_only,
                                         mixture_ratio_val=mixture_ratio_val, mixture_ratio_test=mixture_ratio_test, init_phase=init_phase,
                                         val_set_size=val_set_size)
         else:
-            loaders = get_cifar10_data(batch_size=bs, init_phase=init_phase, train_val_test_split_only=train_val_test_split_only, val_set_size=val_set_size)
-            loader_1 = get_cifar10_c_data(batch_size=bs, corruption_type=corruption_type, severity=severity, 
+            loaders = get_cifar10_data(batch_size=bs, init_phase=init_phase, train_val_test_split_only=train_val_test_split_only, 
+                                       val_set_size=val_set_size)
+            loader_1 = get_cifar10_c_data(batch_size=bs, corruption_type=corruption_type, severity=severity,
                                           train_val_test_split_only=train_val_test_split_only, mixture_ratio_val=mixture_ratio_val, 
                                           mixture_ratio_test=mixture_ratio_test, init_phase=init_phase, val_set_size=val_set_size)
         if train_val_test_split_only:
@@ -506,13 +501,11 @@ if __name__ == "__main__":
                 schedule=schedule
             )
         else:
-            train_loader_0, val_loader_0, test_loader_0, cal_test_w_est_loader_0 = loaders
-            val_loader_mixed, test_loader_mixed, cal_test_w_est_loader_1 = loader_1
+            train_loader_0, cal_test_w_est_loader_0, test_loader_0 = loaders
+            cal_test_w_est_loader_1, test_loader_mixed = loader_1
             paths_dict_curr = training_function(
                 train_loader_0=train_loader_0, 
-                val_loader_0=val_loader_0,
                 test_loader_0=test_loader_0, 
-                val_loader_mixed=val_loader_mixed,
                 test_loader_mixed=test_loader_mixed,
                 cal_test_w_est_loader_0=cal_test_w_est_loader_0,
                 cal_test_w_est_loader_1=cal_test_w_est_loader_1,

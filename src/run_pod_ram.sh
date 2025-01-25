@@ -11,5 +11,5 @@ python -W ignore main_pod_ram.py \
     --lr 0.001 \
     --epochs 1 \
     --severity 5 \
-    --vis_batch_size 1 \
-    --vis_num_of_batches 2000 
+    --vis_batch_size 10 \
+    --vis_num_of_batches 200
