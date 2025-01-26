@@ -752,8 +752,10 @@ def split_and_shift_dataset0(
         elif 'superconduct' in dataset0_name:
             ea_threshold = dataset0_test_0['mean_ElectronAffinity'].quantile(0.75)
             # Increase critical_temp by 10% for materials where oxygen content is above the threshold
-            dataset0_test_0.loc[dataset0_test_0['mean_ElectronAffinity'] > ea_threshold, 'critical_temp'] *= label_uptick #2 #1.1
-            dataset0_test_0['critical_temp'] = dataset0_test_0['critical_temp'].clip(lower=0, upper=200)
+            indices_to_shift = num_test_unshifted + np.where(dataset0_test_0_post_change['mean_ElectronAffinity'] > ea_threshold)[0]
+            dataset0_test_0.loc[indices_to_shift, 'critical_temp'] *= label_uptick #2 #1.1
+#             dataset0_test_0['critical_temp'] = dataset0_test_0['critical_temp'].clip(lower=0, upper=200)
+            
         elif 'wave' in dataset0_name:
             x_mean_threshold = dataset0_test_0['X1'].median()
             # Increase Power_Output by 15% for instances where X_mean is above the threshold

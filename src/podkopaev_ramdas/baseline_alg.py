@@ -11,7 +11,7 @@ import pdb
 
 def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betting', target_conc_type='betting', \
                                 verbose=False, eps_tol=0.0, source_delta=0.005, target_delta = 0.005,\
-                                stop_criterion='fixed_length', max_length=2500):
+                                stop_criterion='fixed_length', max_length=5000):
     """
     Implementation of Podkopaev & Ramdas *sequential testing* baseline, i.e., algorithm 1 in that paper. 
 
