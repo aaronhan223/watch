@@ -7,7 +7,7 @@ do
         --dataset1 mnist_c \
         --n_seeds 1 \
         --cs_type neg_log \
-        --methods baseline \
+        --methods fixed_cal_offline \
         --schedule variable \
         --epochs 1 \
         --lr 0.001 \

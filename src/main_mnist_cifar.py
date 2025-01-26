@@ -124,9 +124,10 @@ def eval_loss_prob(model, device, setting, loader_0, loader_1, binary_classifier
                 correct_class_probs = probabilities.gather(1, labels.view(-1, 1)).squeeze()
             all_preds.extend(correct_class_probs.cpu().numpy())
             
-            # Calculate cross entropy loss for each sample
-            loss = F.cross_entropy(outputs, labels, reduction='none')
-            all_losses.append(loss.cpu().numpy())
+            if not binary_classifier_probs:
+                # Calculate cross entropy loss for each sample
+                loss = F.cross_entropy(outputs, labels, reduction='none')
+                all_losses.append(loss.cpu().numpy())
 
         # Evaluate on test loader
         for images, labels in loader_1:
@@ -142,11 +143,12 @@ def eval_loss_prob(model, device, setting, loader_0, loader_1, binary_classifier
                 correct_class_probs = probabilities.gather(1, labels.view(-1, 1)).squeeze()
             all_preds.extend(correct_class_probs.cpu().numpy())
             
-            # Calculate cross entropy loss for each sample
-            loss = F.cross_entropy(outputs, labels, reduction='none')
-            all_losses.append(loss.cpu().numpy())
-        all_losses = np.concatenate(all_losses)
-    
+            if not binary_classifier_probs:
+                # Calculate cross entropy loss for each sample
+                loss = F.cross_entropy(outputs, labels, reduction='none')
+                all_losses.append(loss.cpu().numpy())
+        if not binary_classifier_probs:
+            all_losses = np.concatenate(all_losses)
     return np.array(all_preds), all_losses
 
 
@@ -227,10 +229,8 @@ def train_and_evaluate(train_loader_0, test_loader_0, dataset0_name, epochs, dev
 
         if (method in ['fixed_cal_offline']):
             ###
-            print("device : ", device)
-            pdb.set_trace()
-            W_0_dict[method] = offline_lik_ratio_estimates_images(cal_test_w_est_loader_0, val_loader_0, test_loader_0, dataset0_name, device=device, setting=setting)
-            W_1_dict[method] = offline_lik_ratio_estimates_images(cal_test_w_est_loader_1, val_loader_mixed, test_loader_mixed, dataset0_name, device=device, setting=setting)
+            W_0_dict[method] = offline_lik_ratio_estimates_images(cal_test_w_est_loader_0, test_loader_0, dataset0_name, device=device, setting=setting)
+            W_1_dict[method] = offline_lik_ratio_estimates_images(cal_test_w_est_loader_1, test_loader_mixed, dataset0_name, device=device, setting=setting)
 
         elif (method in ['fixed_cal', 'one_step_est']):
             ## Estimating likelihood ratios for each cal, test point
@@ -267,7 +267,7 @@ def retrain_count(conformity_score, training_schedule, sr_threshold=1e6, cu_conf
     p_values = calculate_p_values(conformity_score)
     
     if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline']):
-        p_values = calculate_weighted_p_values(conformity_score, W, n_cal, method)
+        p_values = calculate_weighted_p_values_and_quantiles(conformity_score, W, n_cal, method)
     
     retrain_m, martingale_value = composite_jumper_martingale(p_values, verbose=verbose)
 
@@ -336,7 +336,7 @@ def training_function(train_loader_0, test_loader_0, dataset0_name, epochs, devi
         
     for method in methods:
         if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline']):
-            m_0, s_0, martingale_value_0, sigma_0, p_vals = retrain_count(conformity_score=cs_0, training_schedule=schedule,W=W_dict[method],n_cal=len(val_loader_0.dataset), verbose=verbose, method=method)
+            m_0, s_0, martingale_value_0, sigma_0, p_vals = retrain_count(conformity_score=cs_0, training_schedule=schedule, W=W_dict[method], n_cal=len(val_loader_0.dataset), verbose=verbose, method=method)
         
         else:
             ## Run baseline with uniform weights

@@ -25,7 +25,7 @@ def random_forest_weight_est(X, class_labels, ntree=100):
 
 
 
-def offline_lik_ratio_estimates_images(cal_test_w_est_loader, val_loader, test_loader, dataset0_name = 'mnist', \
+def offline_lik_ratio_estimates_images(cal_test_w_est_loader, test_loader, dataset0_name = 'mnist', \
                                        classifier='MLP', device=None, setting='', epochs=10, lr=1e-3):
 
      # Train smaller MLP model to estimate source/target probabilities
@@ -36,10 +36,9 @@ def offline_lik_ratio_estimates_images(cal_test_w_est_loader, val_loader, test_l
     optimizer = optim.Adam(model.parameters(), lr=lr)
     
     ## Fit prob classifier offline
-    fit(model, epochs, cal_test_w_est_loader, None, None, optimizer, setting, device)
-
+    fit(model, epochs, cal_test_w_est_loader, optimizer, setting, device)
     ## Evaluate probability estimiates
-    cal_test_prob_est, losses = eval_loss_prob(model, device, setting, val_loader, test_loader, binary_classifier_probs = True)
+    cal_test_prob_est, _ = eval_loss_prob(model, device, setting, cal_test_w_est_loader, test_loader, binary_classifier_probs = True)
 
     return cal_test_prob_est / (1 - cal_test_prob_est)
 
