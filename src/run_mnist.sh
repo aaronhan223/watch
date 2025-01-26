@@ -13,6 +13,7 @@ do
         --lr 0.001 \
         --bs 64 \
         --init_phase 500 \
+        --alpha 0.1 \
         --corruption_type $corruption \
         --severity 1 \
         --mixture_ratio_val 0.1 \
