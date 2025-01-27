@@ -6,13 +6,14 @@ import os
 import pdb
 from datetime import date
 
-def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, dataset0_name, martingales_0_dict,
+
+def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, martingales_0_dict,
                           martingales_0_stderr_dict, dataset1_paths_dict, dataset1_paths_stderr_dict, 
-                          change_point_index=None, title="Martingale Paths",
+                          dataset0_name, change_point_index, 
+                          martingales_1_dict=None, martingales_1_stderr_dict=None, title="Martingale Paths",
                           xlabel="Test (Deployment) Datapoint Index $t$", martingale="martingale_paths", 
                           dataset0_shift_type='none', n_seeds=1, cs_type='signed', 
-                          setting=None, martingales_1_dict=None, 
-                          martingales_1_stderr_dict=None, methods=['none'], severity=None, 
+                          setting=None, methods=['none'], severity=None, 
                           title_size=28, x_label_size=25, y_label_size=25, 
                           legend_size=20, x_tick_size=18, y_tick_size=18):
     """
@@ -93,10 +94,10 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
             plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_{statistic_name}_{setting}.pdf', bbox_inches='tight')
     
 
-def plot_errors(dataset0_name, errors_0_means_dict, errors_0_stderr_dict, 
-                errs_window=100, change_point_index=None,
+def plot_errors(errors_0_means_dict, errors_0_stderr_dict, 
+                errs_window, dataset0_name, change_point_index,
                 xlabel="Test (Deployment) Datapoint Index $t$", 
-                dataset0_shift_type='none',cov_shift_bias=0.0, plot_errors=False, n_seeds=1, cs_type='signed', 
+                dataset0_shift_type='none', cov_shift_bias=0.0, n_seeds=1, cs_type='signed', 
                 setting=None, label_shift_bias=1, noise_mu=0, noise_sigma=0, methods=['none'], severity=None, 
                 title_size=28, x_label_size=25, y_label_size=25, 
                 legend_size=20, x_tick_size=18, y_tick_size=18):
@@ -105,55 +106,53 @@ def plot_errors(dataset0_name, errors_0_means_dict, errors_0_stderr_dict,
     if (dataset0_name in ['mnist', 'cifar10']):
         plot_image_data = 'mnist_cifar_'
 
-    ## Plot absolute errors
-    if (plot_errors):
-        plt.figure(figsize=(10, 8))
-        
-        for m_i, method in enumerate(methods):
-            ### Plotting errors (ie, abs(scores))
-            # Plot dataset0 group with dashed lines
-            for i, errs in enumerate(errors_0_means_dict[method]):
-                plt.plot(np.arange(0, len(errs)*errs_window, errs_window), errs, label=method_name_dict[method], linestyle='-', color=f'C{m_i}', linewidth=3)
+    plt.figure(figsize=(10, 8))
+    
+    for m_i, method in enumerate(methods):
+        ### Plotting errors (ie, abs(scores))
+        # Plot dataset0 group with dashed lines
+        for i, errs in enumerate(errors_0_means_dict[method]):
+            plt.plot(np.arange(0, len(errs)*errs_window, errs_window), errs, label=method_name_dict[method], linestyle='-', color=f'C{m_i}', linewidth=3)
 
-                plt.fill_between(np.arange(0, len(errs)*errs_window, errs_window), \
-                                 (errs-np.array(errors_0_stderr_dict[method][i])).flatten(), \
-                                 (errs+np.array(errors_0_stderr_dict[method][i])).flatten(), alpha=0.5, color=f'C{m_i}')
+            plt.fill_between(np.arange(0, len(errs)*errs_window, errs_window), \
+                                (errs-np.array(errors_0_stderr_dict[method][i])).flatten(), \
+                                (errs+np.array(errors_0_stderr_dict[method][i])).flatten(), alpha=0.5, color=f'C{m_i}')
 
 #             # Plot dataset1 group with solid lines
 #             for i, errs in enumerate(errors_1_means_dict[method]):
 #                 plt.plot(np.abs(errs), label=dataset1_name + f' {method}, fold {i+1}', linestyle='-', color=f'C{m_i+i+3}')
 
-        # Add vertical line at the change point
-        # plt.axvline(x=change_point_index-num_test_unshifted, color='gray', linestyle=':', linewidth=3, label='Deployment time')
-        plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Changepoint')
+    # Add vertical line at the change point
+    # plt.axvline(x=change_point_index-num_test_unshifted, color='gray', linestyle=':', linewidth=3, label='Deployment time')
+    plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Changepoint')
 
-        plt.xlabel(xlabel, fontsize=x_label_size)
-        plt.ylabel(r'Absolute Error ($\leftarrow$)', fontsize=y_label_size)
-        if dataset0_shift_type == 'covariate':
-            plt.title(f'Error paths, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=title_size)
-        elif dataset0_shift_type == 'label':
-            plt.title(f'Error paths, {dataset0_shift_type} shift, \n label shift={str(label_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=title_size)
-        elif dataset0_shift_type == 'noise':
-            plt.title(f'Error paths, {dataset0_shift_type} shift, \n mean var={str(noise_mu)} {str(noise_sigma)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=title_size)
-        else:
-            plt.title(f'Error paths, {dataset0_shift_type} shift, \n {dataset0_name}, severity={severity}, n_seeds={n_seeds}, {cs_type} Scores', fontsize=title_size)
+    plt.xlabel(xlabel, fontsize=x_label_size)
+    plt.ylabel(r'Absolute Error ($\leftarrow$)', fontsize=y_label_size)
+    if dataset0_shift_type == 'covariate':
+        plt.title(f'Error paths, {dataset0_shift_type} shift, \n bias={str(cov_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=title_size)
+    elif dataset0_shift_type == 'label':
+        plt.title(f'Error paths, {dataset0_shift_type} shift, \n label shift={str(label_shift_bias)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=title_size)
+    elif dataset0_shift_type == 'noise':
+        plt.title(f'Error paths, {dataset0_shift_type} shift, \n mean var={str(noise_mu)} {str(noise_sigma)}, n_seeds={n_seeds}, {cs_type}Scores', fontsize=title_size)
+    else:
+        plt.title(f'Error paths, {dataset0_shift_type} shift, \n {dataset0_name}, severity={severity}, n_seeds={n_seeds}, {cs_type} Scores', fontsize=title_size)
 
-        plt.legend(fontsize=legend_size)
-        plt.grid(True, which="both", ls="--")
-        plt.xticks(fontsize=x_tick_size)        
-        plt.yticks(fontsize=y_tick_size)     
-        
-        if (dataset0_shift_type == 'none'):
-            plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_{dataset0_name}_AbsoluteErrors.pdf', bbox_inches='tight')
-        else:
-            plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_error_{setting}.pdf', bbox_inches='tight')
+    plt.legend(fontsize=legend_size)
+    plt.grid(True, which="both", ls="--")
+    plt.xticks(fontsize=x_tick_size)        
+    plt.yticks(fontsize=y_tick_size)     
+    
+    if (dataset0_shift_type == 'none'):
+        plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_{dataset0_name}_AbsoluteErrors.pdf', bbox_inches='tight')
+    else:
+        plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_error_{setting}.pdf', bbox_inches='tight')
 
 
-def plot_coverage(dataset0_name, errs_window=100, change_point_index=None, xlabel="Test (Deployment) Datapoint Index $t$",
-                          dataset0_shift_type='none', n_seeds=1, cs_type='signed', 
-                          setting=None, coverage_0_means_dict=[], 
-                          coverage_0_stderr_dict=[], methods=['none'], severity=None, title_size=28, x_label_size=25, y_label_size=25, \
-                          legend_size=20, x_tick_size=18, y_tick_size=18):
+def plot_coverage(coverage_0_means_dict, coverage_0_stderr_dict, errs_window, dataset0_name, change_point_index, 
+                  xlabel="Test (Deployment) Datapoint Index $t$",
+                  dataset0_shift_type='none', n_seeds=1, cs_type='signed', 
+                  setting=None, methods=['none'], severity=None, title_size=28, x_label_size=25, y_label_size=25, 
+                  legend_size=20, x_tick_size=18, y_tick_size=18):
 
     method_name_dict = {'fixed_cal_dyn' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
     if (dataset0_name in ['mnist', 'cifar10']):
@@ -192,12 +191,12 @@ def plot_coverage(dataset0_name, errs_window=100, change_point_index=None, xlabe
     plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_coverage_{setting}.pdf', bbox_inches='tight')
 
 
-def plot_widths(dataset0_name, errs_window=100,change_point_index=None,
-                          xlabel="Test (Deployment) Datapoint Index $t$", 
-                          dataset0_shift_type='none', n_seeds=1, cs_type='signed', \
-                          setting=None, widths_0_medians_dict=[], \
-                          widths_0_lower_q_dict=[],widths_0_upper_q_dict=[],methods=['none'], severity=None, title_size=28, x_label_size=25, y_label_size=25, \
-                          legend_size=20, x_tick_size=18, y_tick_size=18):
+def plot_widths(widths_0_medians_dict, dataset0_name, errs_window, change_point_index,
+                widths_0_lower_q_dict=[], widths_0_upper_q_dict=[],
+                xlabel="Test (Deployment) Datapoint Index $t$", 
+                dataset0_shift_type='none', n_seeds=1, cs_type='signed', 
+                setting=None, methods=['none'], severity=None, title_size=28, x_label_size=25, y_label_size=25, 
+                legend_size=20, x_tick_size=18, y_tick_size=18):
 
     method_name_dict = {'fixed_cal_dyn' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
     if (dataset0_name in ['mnist', 'cifar10']):
@@ -232,8 +231,8 @@ def plot_widths(dataset0_name, errs_window=100,change_point_index=None,
     plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_widths_{setting}.pdf', bbox_inches='tight')
 
 
-def plot_p_vals(dataset0_name, p_vals_pre_change_dict, p_vals_post_change_dict, setting=None, 
-                methods=['none'], title_size=28, x_label_size=25, x_tick_size=18):
+def plot_p_vals(p_vals_pre_change_dict, p_vals_post_change_dict, dataset0_name, 
+                setting=None, methods=['none'], title_size=28, x_label_size=25, x_tick_size=18):
 
     method_name_dict = {'fixed_cal_dyn' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
     if (dataset0_name in ['mnist', 'cifar10']):
