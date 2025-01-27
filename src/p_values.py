@@ -11,11 +11,13 @@ import torch.nn.functional as F
 import random
 from main_mnist_cifar import set_seed, MLP, fit, eval_loss_prob, evaluate, train_one_epoch
 
+
 ## Ofline density ratio estimation
 def logistic_regression_weight_est(X, class_labels):
     clf = LogisticRegression(random_state=0).fit(X, class_labels)
     lr_probs = clf.predict_proba(X)
     return lr_probs[:,1] / lr_probs[:,0]
+
 
 def random_forest_weight_est(X, class_labels, ntree=100):
     rf = RandomForestClassifier(n_estimators=ntree,criterion='entropy', min_weight_fraction_leaf=0.1).fit(X, class_labels)
@@ -23,9 +25,7 @@ def random_forest_weight_est(X, class_labels, ntree=100):
     return rf_probs[:,1] / rf_probs[:,0]
 
 
-
-
-def offline_lik_ratio_estimates_images(cal_test_w_est_loader, val_loader, test_loader, dataset0_name = 'mnist', \
+def offline_lik_ratio_estimates_images(cal_test_w_est_loader, test_loader, dataset0_name = 'mnist', \
                                        classifier='MLP', device=None, setting='', epochs=10, lr=1e-3):
 
      # Train smaller MLP model to estimate source/target probabilities
@@ -36,18 +36,15 @@ def offline_lik_ratio_estimates_images(cal_test_w_est_loader, val_loader, test_l
     optimizer = optim.Adam(model.parameters(), lr=lr)
     
     ## Fit prob classifier offline
-    fit(model, epochs, cal_test_w_est_loader, None, None, optimizer, setting, device)
-
+    fit(model, epochs, cal_test_w_est_loader, optimizer, setting, device)
     ## Evaluate probability estimiates
-    cal_test_prob_est, losses = eval_loss_prob(model, device, setting, val_loader, test_loader, binary_classifier_probs = True)
+    cal_test_prob_est, _ = eval_loss_prob(model, device, setting, cal_test_w_est_loader, test_loader, binary_classifier_probs = True)
 
     return cal_test_prob_est / (1 - cal_test_prob_est)
 
 
-
 def online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, adapt_start=None, classifier='LR'):
     
-        
     n_cal = len(X_cal)
     init_phase = len(X_test_w_est)
     n_test = len(X_test_0_only)
@@ -78,7 +75,6 @@ def online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, adapt_start=N
         
     idx_include = np.concatenate((np.repeat(True, adapt_start + init_phase), np.repeat(False, T)), axis=0)
         
-        
     ## t=0 : Offline initialization phase (but set warm_start=True)
     ## t>0 : Online adaptation phase
     for t in range(0, T):
@@ -92,7 +88,6 @@ def online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, adapt_start=N
         idx_include[adapt_start + init_phase + t] = True
     
     return W_i
-
 
 
 def offline_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, classifier='LR'):
@@ -121,7 +116,6 @@ def offline_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, classifier='
     return est_probs[:,1] / est_probs[:,0]
 
 
-
 def calculate_p_values(conformity_scores):
     """
     Calculate the conformal p-values from conformity scores.
@@ -132,7 +126,6 @@ def calculate_p_values(conformity_scores):
                          np.random.uniform() * np.sum(conformity_scores[:i] == conformity_scores[i])) / (i + 1)
                          for i in range(n)])
     return p_values
-
 
 
 def calculate_p_values_and_quantiles(conformity_scores, alpha, cs_type='abs'):
@@ -179,10 +172,8 @@ def calculate_p_values_and_quantiles(conformity_scores, alpha, cs_type='abs'):
     return p_values , q_lower, q_upper
 
 
-
-
 ## Note: This is for calculating the weighted p-values once the normalized weights have already been calculated
-def calculate_weighted_p_values_and_quantiles(conformity_scores, W_i, adapt_start, alpha, cs_type='abs', method='fixed_cal', depth=1, conservative_p=False):
+def calculate_weighted_p_values_and_quantiles(args, conformity_scores, W_i, adapt_start, method, depth=1):
     """
     Calculate the weighted conformal p-values from conformity scores and given normalized weights 
     (i.e., enforce np.sum(normalized_weights) = 1).
@@ -195,16 +186,16 @@ def calculate_weighted_p_values_and_quantiles(conformity_scores, W_i, adapt_star
     wp_values = np.zeros(n) ## p-values calculated with weighted conformity scores
     wq_lower = np.zeros(n) ## lower weighted quantiles
     wq_upper = np.zeros(n) ## upper weighted quantiles
-            
+
     ## For 0:adapt_start, compute as standard p-values and quantiles
     wp_values[0:adapt_start], wq_lower[0:adapt_start], wq_upper[0:adapt_start] = \
-                                        calculate_p_values_and_quantiles(conformity_scores[0:adapt_start], alpha, cs_type) 
+                                        calculate_p_values_and_quantiles(conformity_scores[0:adapt_start], args.alpha, args.cs_type) 
     
     ## For computing (conservative) weighted quantiles, append infinity (which takes place of test pt score)
     conformity_scores_inf = np.concatenate((conformity_scores, [np.inf]))
-    if (cs_type == 'signed'):
+    if (args.cs_type == 'signed'):
         conformity_scores_neg_inf = np.concatenate((conformity_scores, [-np.inf])) 
-        
+
     if method in ['fixed_cal', 'fixed_cal_oracle', 'sliding_window', 'fixed_cal_offline', 'fixed_cal_dyn']:
 
         if method == 'fixed_cal':
@@ -218,7 +209,6 @@ def calculate_weighted_p_values_and_quantiles(conformity_scores, W_i, adapt_star
         
         ## indices to include in computing weighted quantiles, where last entry includes np.inf
         idx_include_inf = np.concatenate((np.repeat(True, adapt_start), np.repeat(False, T), [True]), axis=0) 
-
         
         ## Note: in loop here, t_ := t-1 for zero-indexing
         for t_ in range(0, T):
@@ -241,16 +231,13 @@ def calculate_weighted_p_values_and_quantiles(conformity_scores, W_i, adapt_star
             normalized_weights_t = W_i_t / np.sum(W_i_t)
             
             ## Calculate weighted quantiles
-            if (cs_type != 'signed'):
-                wq_upper[adapt_start+t_] = weighted_quantile(conformity_scores_inf[idx_include_inf], normalized_weights_t, \
-                                                             1-alpha)
+            if (args.cs_type != 'signed'):
+                wq_upper[adapt_start+t_] = weighted_quantile(conformity_scores_inf[idx_include_inf], normalized_weights_t, 1-args.alpha)
                 wq_lower[adapt_start+t_] = - wq_upper[adapt_start+t_]
             else:
                 ## Intervals for signed scores computed by (alpha/2) lower q, (1-alpha/2) upper q
-                wq_upper[adapt_start+t_] = weighted_quantile(conformity_scores_inf[idx_include_inf], normalized_weights_t, \
-                                                             1-alpha/2)
-                wq_lower[adapt_start+t_] = weighted_quantile(conformity_scores_neg_inf[idx_include_inf], normalized_weights_t,\
-                                                             alpha/2)
+                wq_upper[adapt_start+t_] = weighted_quantile(conformity_scores_inf[idx_include_inf], normalized_weights_t, 1-args.alpha/2)
+                wq_lower[adapt_start+t_] = weighted_quantile(conformity_scores_neg_inf[idx_include_inf], normalized_weights_t, args.alpha/2)
 #             idx_include_inf[adapt_start+t_] = True
             
             ## Calculate weighted p-values
@@ -265,7 +252,7 @@ def calculate_weighted_p_values_and_quantiles(conformity_scores, W_i, adapt_star
 #                 ## Exact p-values with uniform-randomization to break ties
     
             ## 
-            if (np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]]) < alpha):
+            if (np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]]) < args.alpha):
                 ## If no more than (relative) weight 'alpha' put on test point score, compute exact (randomized) p-values:
                 wp_values[adapt_start+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
                             np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
@@ -273,8 +260,6 @@ def calculate_weighted_p_values_and_quantiles(conformity_scores, W_i, adapt_star
                 ## Else: over (relative) weight 'alpha' put on test pt score, compute conservative (and deterministic) p-values:
                 print("Using conservative p-values : ", t_)
                 wp_values[adapt_start+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]])
-    
-            
 
     elif (method in ['one_step_oracle', 'one_step_est', 'batch_oracle', 'multistep_oracle']):
         
@@ -300,14 +285,11 @@ def calculate_weighted_p_values_and_quantiles(conformity_scores, W_i, adapt_star
             
             ## Normalize weights on subset of weights
             normalized_weights_t = W_i_t / np.sum(W_i_t)
-            
-                        
+
             ## Calculate weighted p-values
             wp_values[adapt_start+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]]) + \
                             np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
            
-                
-    
     else:
         raise Exception("Not implemented")
         
@@ -316,9 +298,6 @@ def calculate_weighted_p_values_and_quantiles(conformity_scores, W_i, adapt_star
     np.nan_to_num(wq_upper, copy=False, nan=np.inf, posinf=np.inf)
         
     return wp_values, wq_lower, wq_upper
-
-
-
 
 
 def subsample_batch_weights(w_array_all, n_cal, max_num_samples=20):

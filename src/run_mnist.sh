@@ -7,12 +7,13 @@ do
         --dataset1 mnist_c \
         --n_seeds 1 \
         --cs_type neg_log \
-        --methods baseline \
+        --methods fixed_cal_offline \
         --schedule variable \
         --epochs 1 \
         --lr 0.001 \
         --bs 64 \
         --init_phase 500 \
+        --alpha 0.1 \
         --corruption_type $corruption \
         --severity 1 \
         --mixture_ratio_val 0.1 \
