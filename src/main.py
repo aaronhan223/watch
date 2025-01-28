@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 import math
 from podkopaev_ramdas.baseline_alg import podkopaev_ramdas_algorithm1, podkopaev_ramdas_changepoint_detection
 import time
+from datetime import date
 
 
 def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0, cs_type='signed',\
@@ -106,8 +107,8 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             p_values = calculate_p_values(X_conformity_scores_0)
             
             ## Run martingale on test pt p-values, ie on p_values[n_cal:]
-            _, martingale_value_test = composite_jumper_martingale(p_values[(n_cal):]) 
-            _, sigma_test = shiryaev_roberts_procedure(martingale_value_test, 100)
+            _, martingale_value_test, _, _ = composite_jumper_martingale(p_values[(n_cal):], return_alarm=True) 
+            _, sigma_test, _, _ = shiryaev_roberts_procedure(martingale_value_test, x_sched_thresh, return_alarm=True)
             
             ## Save X-CTM and X-CTM SR stat paths
             xctm_paths_0.append(martingale_value_test)
@@ -221,11 +222,13 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
     return cs_0, cs_1, W_dict, adapt_starts, n_cals, errors_0, xctm_paths_0, xctm_sr_paths_0
 
 
-def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, adapt_start, n_cal, alpha=0.1,\
+def retrain_count(args, conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, adapt_start, n_cal, alpha=0.1,\
                   cs_type='abs',verbose=False, method='fixed_cal_oracle', depth=1, init_ctm_on_cal_set=True):
     
     if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline', 'fixed_cal_dyn']):
-        p_values, q_lower, q_upper = calculate_weighted_p_values_and_quantiles(conformity_score, W_i, adapt_start, alpha, cs_type, method)
+        print("adapt_start : ", adapt_start)
+        p_values, q_lower, q_upper = calculate_weighted_p_values_and_quantiles(args, conformity_score, W_i, adapt_start, method)
+        
         
     else:
         p_values, q_lower, q_upper = calculate_p_values_and_quantiles(conformity_score, alpha, cs_type)
@@ -234,37 +237,44 @@ def retrain_count(conformity_score, training_schedule, sr_threshold, cu_confiden
         
     if (init_ctm_on_cal_set):
         ## Initialize CTM on calibration set, as in Vovk et al. 2021
-        retrain_m, martingale_value = composite_jumper_martingale(p_values, verbose=verbose)
+        retrain_m, martingale_value, martingale_runtime, martingale_alarm  = composite_jumper_martingale(p_values, verbose=verbose, return_alarm=True)
     else:
         ## Initialize CTM at deployment time (ie, not including calibration set) to facilitate comparison to other methods
 #         p_values = p_values[n_cal:]
 #         q_lower  = q_lower[n_cal:]
 #         q_upper  = q_upper[n_cal:]
         
-        retrain_m, martingale_value = composite_jumper_martingale(p_values[n_cal:], verbose=verbose)
+        retrain_m, martingale_value, martingale_runtime, martingale_alarm = composite_jumper_martingale(p_values[n_cal:], 100, verbose=verbose, return_alarm=True)
         
-    
-    
+    sigma=None
+    cusum=None
+    sigma_alarm=None
+    cusum_alarm=None
     if training_schedule == 'variable':
-        retrain_s, sigma = shiryaev_roberts_procedure(martingale_value, sr_threshold, verbose)
+        retrain_s, sigma, sigma_runtime, sigma_alarm = shiryaev_roberts_procedure(martingale_value, 10**4, verbose, return_alarm=True)
         
     elif (training_schedule == 'basic'):
 #         print("martingale_value shape :", np.shape(martingale_value))
-        retrain_s, sigma = shiryaev_roberts_procedure(martingale_value, sr_threshold, verbose)
+        retrain_s, sigma, sigma_runtime, sigma_alarm = shiryaev_roberts_procedure(martingale_value, 10**4, verbose, return_alarm=True)
 #         print("SR shape :", np.shape(sigma))
         sigma = martingale_value
+    
+    elif (training_schedule == 'both'):
+        retrain_s, sigma, sigma_runtime, sigma_alarm = shiryaev_roberts_procedure(martingale_value, 10**4, verbose, return_alarm=True)
+        _, cusum, cusum_runtime, cusum_alarm = cusum_procedure(martingale_value, 10**4, verbose, return_alarm=True)
+
     else:
-        retrain_s, sigma = cusum_procedure(martingale_value, cu_confidence, verbose)
+        retrain_s, cusum, cusum_runtime, cusum_alarm = cusum_procedure(martingale_value, 10**4, verbose, return_alarm=True)
         
 
-    return retrain_m, retrain_s, martingale_value, sigma, p_values, q_lower, q_upper
+    return retrain_m, retrain_s, martingale_value, sigma, cusum, p_values, q_lower, q_upper, martingale_runtime, sigma_runtime, cusum_runtime, martingale_alarm, sigma_alarm, cusum_alarm
 
 
 
 
 
-def training_function(dataset0, dataset0_name, dataset1=None, training_schedule='variable', \
-                      sr_threshold=1e6, cu_confidence=0.99, muh_fun_name='RF', test0_size=1599/4898, \
+def training_function(args, dataset0, dataset0_name, dataset1=None, training_schedule='variable', \
+                      sr_threshold=10**4, cu_confidence=0.99, muh_fun_name='RF', test0_size=1599/4898, \
                       dataset0_shift_type='none', cov_shift_bias=1.0, plot_errors=False, seed=0, cs_type='signed', \
                       label_uptick=1, verbose=False, noise_mu=0, noise_sigma=0, methods=['fixed_cal_oracle', 'none'],\
                       depth=1,init_phase=500, num_folds=3, x_ctm_thresh=None, x_sched_thresh=None, alpha=0.1,\
@@ -272,7 +282,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                       pr_target_conc_type='betting', pr_st_eps_tol=0.0, pr_st_source_delta=1/200, \
                       pr_st_target_delta = 1/200,pr_cd_eps_tol=0.0, pr_cd_source_delta=1/20000, \
                       pr_cd_target_delta = 1/20000,pr_st_stop_criterion='fixed_length',pr_cd_stop_criterion='fixed_length',\
-                      init_ctm_on_cal_set=True):
+                      pr_cd_batch_size=50, init_ctm_on_cal_set=True, proportion_holdout=3/4):
     
     
     
@@ -307,6 +317,9 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     
     martingales_0_dict, martingales_1_dict = {}, {}
     sigmas_0_dict, sigmas_1_dict = {}, {}
+    cusum_0_dict, cusum_1_dict = {}, {}
+    martingale_0_runtime_dict, sigmas_0_runtime_dict, cusum_0_runtime_dict = {}, {}, {}
+    martingale_0_alarm_dict, sigmas_0_alarm_dict, cusum_0_alarm_dict = {}, {}, {}
     retrain_m_count_0_dict, retrain_s_count_0_dict = {}, {}
     retrain_m_count_1_dict, retrain_s_count_1_dict = {}, {}
     p_values_0_dict = {}
@@ -316,12 +329,18 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     if run_PR_ST:
         ## Podkopaev Ramdas sequential testing method
         PR_ST_alarm_0_dict, PR_ST_alarm_1_dict = {}, {}
+        PR_ST_runtime_0_dict, PR_ST_runtime_1_dict = {}, {}
         PR_ST_source_UCB_tols_0_dict, PR_ST_source_UCB_tols_1_dict = {}, {}
         PR_ST_target_LCBs_0_dict, PR_ST_target_LCBs_1_dict = {}, {}
+        
+        ## Also record coverage and widths for corresponding CP methods
+        PR_ST_coverage_0_dict, PR_ST_coverage_1_dict = {}, {}
+        PR_ST_widths_0_dict, PR_ST_widths_1_dict = {}, {}
         
     if run_PR_CD:
         ## Podkopaev Ramdas changepoint detection method
         PR_CD_alarm_0_dict, PR_CD_alarm_1_dict = {}, {}
+        PR_CD_runtime_0_dict, PR_CD_runtime_1_dict = {}, {}
         PR_CD_source_UCB_tols_0_dict, PR_CD_source_UCB_tols_1_dict = {}, {}
         PR_CD_target_LCBs_0_dict, PR_CD_target_LCBs_1_dict = {}, {}
         
@@ -329,6 +348,9 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     for method in methods:
         martingales_0_dict[method], martingales_1_dict[method] = [], []
         sigmas_0_dict[method], sigmas_1_dict[method] = [], []
+        cusum_0_dict[method], cusum_1_dict[method] = [], []
+        martingale_0_runtime_dict[method], sigmas_0_runtime_dict[method], cusum_0_runtime_dict[method] = [], [], []
+        martingale_0_alarm_dict[method], sigmas_0_alarm_dict[method], cusum_0_alarm_dict[method] = [], [], []
         retrain_m_count_0_dict[method], retrain_s_count_0_dict[method] = [], []
         retrain_m_count_1_dict[method], retrain_s_count_1_dict[method] = [], []
         p_values_0_dict[method] = []
@@ -337,11 +359,16 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         
         if run_PR_ST:
             PR_ST_alarm_0_dict['PR_ST_cp_'+method], PR_ST_alarm_1_dict['PR_ST_cp_'+method] = [], []
+            PR_ST_runtime_0_dict['PR_ST_cp_'+method], PR_ST_runtime_1_dict['PR_ST_cp_'+method] = [], []
             PR_ST_source_UCB_tols_0_dict['PR_ST_cp_'+method], PR_ST_source_UCB_tols_1_dict['PR_ST_cp_'+method] = [], []
             PR_ST_target_LCBs_0_dict['PR_ST_cp_'+method], PR_ST_target_LCBs_1_dict['PR_ST_cp_'+method] = [], []
             
+            PR_ST_coverage_0_dict['PR_ST_cp_'+method], PR_ST_coverage_1_dict['PR_ST_cp_'+method] = [], []
+            PR_ST_widths_0_dict['PR_ST_cp_'+method], PR_ST_widths_1_dict['PR_ST_cp_'+method] = [], []
+            
         if run_PR_CD:
             PR_CD_alarm_0_dict['PR_CD_cp_'+method], PR_CD_alarm_1_dict['PR_CD_cp_'+method] = [], []
+            PR_CD_runtime_0_dict['PR_CD_cp_'+method], PR_CD_runtime_1_dict['PR_CD_cp_'+method] = [], []
             PR_CD_source_UCB_tols_0_dict['PR_CD_cp_'+method], PR_CD_source_UCB_tols_1_dict['PR_CD_cp_'+method] = [], []
             PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method], PR_CD_target_LCBs_1_dict['PR_CD_cp_'+method] = [], []
             
@@ -357,24 +384,33 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         n_cal = n_cals[i]
             
         for method in methods:
+            print("n_cal : ", n_cal)
+            print("len W_dict[method][i] : ", len(W_dict[method][i]))
             
             if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline', 'fixed_cal_dyn']):
-                m_0, s_0, martingale_value_0, sigma_0, p_vals, q_lower, q_upper = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, W_dict[method][i], adapt_starts[i], n_cal, alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set)
+                m_0, s_0, martingale_value_0, sigma_0, cusum_0, p_vals, q_lower, q_upper, martingale_runtime, sigma_runtime, cusum_runtime, martingale_alarm, sigma_alarm, cusum_alarm = retrain_count(args, score_0, training_schedule, sr_threshold, cu_confidence, W_dict[method][i], adapt_starts[i], n_cal, alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set)
                 
             else:
                 ## Run baseline with uniform weights
-                m_0, s_0, martingale_value_0, sigma_0, p_vals, q_lower, q_upper = retrain_count(score_0, training_schedule, sr_threshold, cu_confidence, None, adapt_starts[i], n_cal, alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set)
-                
-                
-            
+                m_0, s_0, martingale_value_0, sigma_0, cusum_0, p_vals, q_lower, q_upper, martingale_runtime, sigma_runtime, cusum_runtime, martingale_alarm, sigma_alarm, cusum_alarm = retrain_count(args, score_0, training_schedule, sr_threshold, cu_confidence, None, adapt_starts[i], n_cal, alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set)
+                            
 
             if m_0:
                 retrain_m_count_0_dict[method] += 1
             if s_0:
                 retrain_s_count_0_dict[method] += 1
                 
+            print("martingale_alarm, sigma_alarm, cusum_alarm, ", martingale_alarm, sigma_alarm, cusum_alarm)
+                
             martingales_0_dict[method].append(martingale_value_0)
             sigmas_0_dict[method].append(sigma_0)
+            cusum_0_dict[method].append(cusum_0)
+            martingale_0_runtime_dict[method].append(martingale_runtime)
+            sigmas_0_runtime_dict[method].append(sigma_runtime)
+            cusum_0_runtime_dict[method].append(cusum_runtime)
+            martingale_0_alarm_dict[method].append(martingale_alarm)
+            sigmas_0_alarm_dict[method].append(sigma_alarm)
+            cusum_0_alarm_dict[method].append(cusum_alarm)
 #             print("len(martingale_value_0) : ", len(martingale_value_0))
 #             print("len(sigma_0) : ", len(sigma_0))
 
@@ -385,17 +421,45 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
 #             coverage_0_dict[method].append(coverage_vals)
 #             widths_0_dict[method].append(q_upper - q_lower)
                         
-            if run_PR_ST:
-                miscoverage_losses = 1 - coverage_vals
+    
+    
+            if (run_PR_ST or run_PR_CD):
+                ## If running PR baseline, compute different weighted CP or CP sets after setting aside some calibration data for holdout source set
+#                 n_cal_half = int(adapt_starts[i]/2) ## Cal set determined by where adaptation starts
+#                 n_holdout = adapt_starts[i] - n_cal_half
+                n_cal_propper = int(proportion_holdout*n_cal) ## Cal set determined by where adaptation starts
+                n_holdout = n_cal - n_cal_propper
+                cal_propper_scores = score_0[:n_cal_propper] ## Propper calibration scores, half size of full cal set
+                holdout_test_scores = score_0[n_cal_propper:] ## Holdout (source) scores + test (target) scores
+#                 print("W_dict[method][i] shape : ", np.shape(W_dict[method][i]))
                 
+                if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline', 'fixed_cal_dyn']):
+                    
+                    q_lower_holdout_test, q_upper_holdout_test = calculate_weighted_cp_quantiles_holdout(cal_propper_scores, holdout_test_scores, W_dict[method][i], n_cal, adapt_starts[i], alpha, 'abs')
+
+                    
+                else:
+                    ## Run baseline with uniform weights
+                    q_lower_holdout_test, q_upper_holdout_test = calculate_cp_quantiles_holdout(cal_propper_scores, holdout_test_scores, alpha, cs_type='abs')
+                    
+                coverage_pr_holdout_test = ((q_lower_holdout_test <= holdout_test_scores) & (q_upper_holdout_test >= holdout_test_scores))
+                widths_pr_holdout_test = q_upper_holdout_test - q_lower_holdout_test
+                
+                miscoverage_losses = 1 - coverage_pr_holdout_test
+                
+                
+            if run_PR_ST:
+                            
                 ## Run Podkopaev Ramdas baseline on miscoverage losses for corresponding CP method
                 print("Running PodRam algorithm 1")
                 start_time = time.time()
                 
+                print("source miscoverage loss : ", np.mean(miscoverage_losses[:n_holdout]))
+                print("target miscoverage loss : ", np.mean(miscoverage_losses[n_holdout:]))
         
-                PR_ST_alarm_test_idx, PR_ST_source_UCB_tol, PR_ST_target_LCBs = podkopaev_ramdas_algorithm1(\
-                                                                                      miscoverage_losses[:n_cals[i]], \
-                                                                                      miscoverage_losses[n_cals[i]:], \
+                PR_ST_alarm_test_idx, PR_ST_source_UCB_tol, PR_ST_target_LCBs, PR_ST_runtime = podkopaev_ramdas_algorithm1(\
+                                                                                      miscoverage_losses[:n_holdout], \
+                                                                                      miscoverage_losses[n_holdout:], \
                                                                                       source_conc_type=pr_source_conc_type, \
                                                                                       target_conc_type=pr_target_conc_type, \
                                                                                       eps_tol=pr_st_eps_tol, \
@@ -408,36 +472,50 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                 ## Record results for PodRam sequential testing baseline
                 if (PR_ST_alarm_test_idx is None):
                     PR_ST_alarm_0_dict['PR_ST_cp_'+method].append(None)
+                    PR_ST_runtime_0_dict['PR_ST_cp_'+method].append(None)
                 else:
                     PR_ST_alarm_0_dict['PR_ST_cp_'+method].append(PR_ST_alarm_test_idx)
+                    PR_ST_runtime_0_dict['PR_ST_cp_'+method].append(PR_ST_runtime)
                     
                 PR_ST_source_UCB_tols_0_dict['PR_ST_cp_'+method].append(PR_ST_source_UCB_tol)
                 PR_ST_target_LCBs_0_dict['PR_ST_cp_'+method].append(PR_ST_target_LCBs)
                 
                 
+                PR_ST_coverage_0_dict['PR_ST_cp_'+method].append(coverage_pr_holdout_test)
+                PR_ST_widths_0_dict['PR_ST_cp_'+method].append(widths_pr_holdout_test)
+                
+                print("PR_ST_alarm_test_idx : ", PR_ST_alarm_test_idx)
+
                 print("Running PodRam changepoint detection algo")
                 start_time = time.time()
             
             if run_PR_CD:
                 
                 
-                PR_CD_alarm_test_idx, PR_CD_source_UCB_tol, PR_CD_target_LCBs = podkopaev_ramdas_changepoint_detection(\
-                                                                                      miscoverage_losses[:n_cals[i]], \
-                                                                                      miscoverage_losses[n_cals[i]:], \
+                PR_CD_alarm_test_idx, PR_CD_source_UCB_tol, PR_CD_target_LCBs, PR_CD_runtime = \
+                                                                                      podkopaev_ramdas_changepoint_detection(\
+                                                                                      miscoverage_losses[:n_holdout], \
+                                                                                      miscoverage_losses[n_holdout:], \
+
                                                                                       source_conc_type=pr_source_conc_type, \
                                                                                       target_conc_type=pr_target_conc_type, \
                                                                                       eps_tol=pr_cd_eps_tol,\
                                                                                       source_delta=pr_cd_source_delta, \
                                                                                       target_delta=pr_cd_target_delta,\
-                                                                                      stop_criterion=pr_cd_stop_criterion)
+                                                                                      stop_criterion=pr_cd_stop_criterion,\
+                                                                                      batch_size=pr_cd_batch_size)
             
                 print("Completed PodRam changepoint detection algo; runtime in min = ", (time.time()-start_time)/60)
+                
+                print("PR_CD_alarm_test_idx : ", PR_CD_alarm_test_idx)
                 
                 ## Record results for PodRam changepoint detection method
                 if (PR_CD_alarm_test_idx is None):
                     PR_CD_alarm_0_dict['PR_CD_cp_'+method].append(None)
+                    PR_CD_runtime_0_dict['PR_CD_cp_'+method].append(None)
                 else:
                     PR_CD_alarm_0_dict['PR_CD_cp_'+method].append(PR_CD_alarm_test_idx)
+                    PR_CD_runtime_0_dict['PR_CD_cp_'+method].append(PR_CD_runtime)
                     
                 PR_CD_source_UCB_tols_0_dict['PR_CD_cp_'+method].append(PR_CD_source_UCB_tol)
                 PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method].append(PR_CD_target_LCBs)
@@ -462,7 +540,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     ## Note: 
     for i, score_1 in enumerate(cs_1):
         for method in methods:
-            m_1, s_1, martingale_value_1, sigma_1 = retrain_count(score_1, training_schedule, sr_threshold, cu_confidence, W[i], adapt_starts[i], alpha, cs_type, verbose, method, depth)
+            m_1, s_1, martingale_value_1, sigma_1 = retrain_count(args, score_1, training_schedule, sr_threshold, cu_confidence, W[i], adapt_starts[i], alpha, cs_type, verbose, method, depth)
 
             if m_1:
                 retrain_m_count_1_dict[method] += 1
@@ -470,6 +548,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                 retrain_s_count_1_dict[method] += 1
             martingales_1_dict[method].append(martingale_value_1)
             sigmas_1_dict[method].append(sigma_1)
+            cusum_1_dict[method].append(cusum_1)
             
             
             if run_PR_ST:
@@ -510,7 +589,26 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
     PR_CD_paths_dict = {}
     PR_CD_paths=None
     
+    
+    alarm_df = pd.DataFrame(np.c_[np.repeat(seed, len(methods)), methods], columns = ['itrial', 'methods'])
+    
+    ## Save alarm indices
+    alarm_df['martingale_alarm'] = [martingale_0_alarm_dict[method][0] for method in methods]
+    alarm_df['SR_alarm'] = [sigmas_0_alarm_dict[method][0] for method in methods]
+    alarm_df['CUSUM_alarm'] = [cusum_0_alarm_dict[method][0] for method in methods]
+    alarm_df['PR_ST_alarm'] = [PR_ST_alarm_0_dict['PR_ST_cp_'+method][0] for method in methods]
+    alarm_df['PR_CD_alarm'] = [PR_CD_alarm_0_dict['PR_CD_cp_'+method][0] for method in methods]
+    
+    ## Save runtime to alarm
+    alarm_df['martingale_runtime'] = [martingale_0_runtime_dict[method][0] for method in methods]
+    alarm_df['SR_runtime'] = [sigmas_0_runtime_dict[method][0] for method in methods]
+    alarm_df['CUSUM_runtime'] = [cusum_0_runtime_dict[method][0] for method in methods]
+    alarm_df['PR_ST_runtime'] = [PR_ST_runtime_0_dict['PR_ST_cp_'+method][0] for method in methods]
+    alarm_df['PR_CD_runtime'] = [PR_CD_runtime_0_dict['PR_CD_cp_'+method][0] for method in methods]
+    
+    
     for method in methods:
+        
     
         paths = pd.DataFrame(np.c_[np.repeat(seed, min_len), np.arange(0, min_len)], columns = ['itrial', 'obs_idx'])
         ## For each fold:
@@ -521,6 +619,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
         print("min_len : ", min_len)
         for k in range(0, len(sigmas_0_dict[method])):
             paths['sigmas_0_'+str(k)] = sigmas_0_dict[method][k][0:min_len]
+            paths['cusum_0_'+str(k)] = cusum_0_dict[method][k][0:min_len]
             paths['martingales_0_'+str(k)] = martingales_0_dict[method][k][0:min_len]
 #             paths['cs_0_'+str(k)] = cs_0[k][0:min_len]
             paths['errors_0_'+str(k)] = errors_0[k][0:min_len]
@@ -537,6 +636,7 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
 
         for k in range(0, len(sigmas_1)):
             paths['sigmas_1_'+str(k)] = sigmas_1[k][0:min_len]
+            paths['cusum_1_'+str(k)] = cusum_1[k][0:min_len]
             paths['martingales_1_'+str(k)] = martingales_1_dict[method][k][0:min_len]
 #             paths['cs_1_'+str(k)] = cs_1[k][0:min_len]
 
@@ -549,9 +649,13 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
             PR_ST_min_len = len(PR_ST_target_LCBs_0_dict['PR_ST_cp_'+method][0])
             PR_ST_paths = pd.DataFrame(np.c_[np.repeat(seed, PR_ST_min_len), np.arange(0, PR_ST_min_len)], columns = ['itrial', 'obs_idx'])
             for k in range(0, len(PR_ST_source_UCB_tols_0_dict['PR_ST_cp_'+method])):
-                PR_ST_paths['PR_ST_alarm_0_'+str(k)] = PR_ST_alarm_0_dict['PR_ST_cp_'+method][k]
+#                 PR_ST_paths['PR_ST_alarm_0_'+str(k)] = PR_ST_alarm_0_dict['PR_ST_cp_'+method][k]
                 PR_ST_paths['PR_ST_UCBtol_0_'+str(k)] = PR_ST_source_UCB_tols_0_dict['PR_ST_cp_'+method][k]
                 PR_ST_paths['PR_ST_LCB_0_'+str(k)] = PR_ST_target_LCBs_0_dict['PR_ST_cp_'+method][k][0:PR_ST_min_len]
+                
+                PR_ST_paths['PR_ST_coverage_0_'+str(k)] = PR_ST_coverage_0_dict['PR_ST_cp_'+method][k][0:PR_ST_min_len]
+                PR_ST_paths['PR_ST_widths_0_'+str(k)] = PR_ST_widths_0_dict['PR_ST_cp_'+method][k][0:PR_ST_min_len]
+                
                 
             PR_ST_paths_dict['PR_ST_cp_'+method] = PR_ST_paths
             
@@ -560,15 +664,16 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
             PR_CD_min_len = len(PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method][0])
             PR_CD_paths = pd.DataFrame(np.c_[np.repeat(seed, PR_CD_min_len), np.arange(0, PR_CD_min_len)], columns = ['itrial', 'obs_idx'])
             for k in range(0, len(PR_CD_source_UCB_tols_0_dict['PR_CD_cp_'+method])):
-                PR_CD_paths['PR_CD_alarm_0_'+str(k)] = PR_CD_alarm_0_dict['PR_CD_cp_'+method][k]
+#                 PR_CD_paths['PR_CD_alarm_0_'+str(k)] = PR_CD_alarm_0_dict['PR_CD_cp_'+method][k]
                 PR_CD_paths['PR_CD_UCBtol_0_'+str(k)] = PR_CD_source_UCB_tols_0_dict['PR_CD_cp_'+method][k]
                 PR_CD_paths['PR_CD_LCB_0_'+str(k)] = PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method][k][0:PR_CD_min_len]
                 
             PR_CD_paths_dict['PR_CD_cp_'+method] = PR_CD_paths
             
             
+    print("alarm_df : ", alarm_df)
     
-    return paths_dict, PR_ST_paths_dict, PR_CD_paths_dict
+    return paths_dict, PR_ST_paths_dict, PR_CD_paths_dict, alarm_df
 
         
 if __name__ == "__main__":
@@ -589,7 +694,7 @@ if __name__ == "__main__":
     parser.add_argument('--plot_errors', type=bool, default=False, help='Whether to also plot absolute errors.')
     parser.add_argument('--schedule', type=str, default='variable', help='Training schedule: variable or fixed.')
 #     parser.add_argument('--schedule', type='+', default=['variable', 'basic'], help='Training schedules or statistics to plot: variable=SR, fixed=CUSUM, basic=wealth.')
-
+    parser.add_argument('--alpha', type=float, default=0.1, help='Miscoverage rate.')
     parser.add_argument('--n_seeds', type=int, default=1, help='Number of random seeds to run experiments on.')
     parser.add_argument('--errs_window', type=int, default=50, help='Num observations to average for plotting errors.')
     parser.add_argument('--cs_type', type=str, default='signed', help="Nonconformity score type: 'abs' or 'signed' ")
@@ -615,11 +720,13 @@ if __name__ == "__main__":
     parser.add_argument('--pr_st_eps_tol', type=float, default=0.0, help="PodRam ST epsilon tolerance.")
     parser.add_argument('--pr_st_source_delta', type=float, default=1/200, help="PodRam ST source delta.")
     parser.add_argument('--pr_st_target_delta', type=float, default=1/200, help="PodRam ST target delta.")
-    parser.add_argument('--pr_st_stop_criterion', type=str, default='fixed_length', help="Stopping criterion for PodRam ST Algorithm 1 baseline.")
+    parser.add_argument('--pr_st_stop_criterion', type=str, default='first_alarm', help="Stopping criterion for PodRam ST Algorithm 1 baseline.")
     parser.add_argument('--pr_cd_eps_tol', type=float, default=0.0, help="PodRam CD epsilon tolerance.")
     parser.add_argument('--pr_cd_source_delta', type=float, default=1/20000, help="PodRam CD source delta.")
     parser.add_argument('--pr_cd_target_delta', type=float, default=1/20000, help="PodRam CD target delta.")
-    parser.add_argument('--pr_cd_stop_criterion', type=str, default='fixed_length', help="Stopping criterion for PodRam changepoint detection baseline.")
+    parser.add_argument('--pr_cd_stop_criterion', type=str, default='first_alarm', help="Stopping criterion for PodRam changepoint detection baseline.")
+    parser.add_argument('--pr_cd_batch_size', type=int, default=50, help="Batch size PodRam changepoint detection baseline.")
+    parser.add_argument('--proportion_holdout', type=float, default=3/4, help="Proportion of cal set to use as holdout for PodRam")
 #     parser.add_argument('--init_ctm_on_cal_set', type=bool, default=True, help="Whether to initialize conformal martingales on the calibration set (as in Vovk et al); false := initialize at deployment time instead for comparison with Ramdas")
     parser.add_argument('--init_on_cal', dest='init_ctm_on_cal_set', action='store_true',
                     help='Set the init_ctm_on_cal_set flag value to True.')
@@ -641,6 +748,7 @@ if __name__ == "__main__":
     plot_errors = args.plot_errors
     training_schedule = args.schedule
     n_seeds = args.n_seeds
+    alpha = args.alpha
     errs_window = args.errs_window
     cs_type = args.cs_type
 #     weights_to_compute = args.weights_to_compute
@@ -654,6 +762,8 @@ if __name__ == "__main__":
     init_ctm_on_cal_set = args.init_ctm_on_cal_set
     run_PR_ST = args.run_PR_ST
     run_PR_CD = args.run_PR_CD
+    pr_cd_batch_size = args.pr_cd_batch_size
+    proportion_holdout = args.proportion_holdout
     
     print("init_ctm_on_cal_set from args : ", init_ctm_on_cal_set)
     
@@ -676,6 +786,8 @@ if __name__ == "__main__":
     print("run_PR_ST : ", run_PR_ST)
     print("run_PR_CD : ", run_PR_CD)
     
+    begin_script_time = time.time()
+    
     ## Load datasets into dataframes
     dataset0 = eval(f'get_{dataset0_name}_data()')
     if (dataset1_name is not None):
@@ -697,7 +809,7 @@ if __name__ == "__main__":
 #     paths_all = pd.DataFrame()
     
     methods_all = "_".join(methods)
-    setting = '{}-{}-{}-shift_bias{}-label_shift{}-err_win{}-cs_type{}-nseeds{}-W{}-numTestUnshifted{}-test0Size{}-initCTMcal{}'.format(
+    setting = '{}-{}-{}-c_bias{}-label{}-win{}-cs{}-nseeds{}-W{}-numTUn{}-test0Size{}-initCal{}-sch{}-pHold{}'.format(
         dataset0_name,
         muh_fun_name,
         dataset0_shift_type,
@@ -709,11 +821,13 @@ if __name__ == "__main__":
         methods_all,
         num_test_unshifted,
         test0_size,
-        init_ctm_on_cal_set
+        init_ctm_on_cal_set,
+        training_schedule,
+        proportion_holdout
     )
     
     if run_PR_ST:
-        PR_ST_setting = 'sConc{}-tConc{}-eTol{}-sDelta{}-tDelta{}-stop{}'.format(
+        PR_ST_setting = 'sCon{}-tCon{}-eTol{}-sDel{}-tDel{}-stop{}'.format(
             pr_source_conc_type,
             pr_target_conc_type,
             pr_st_eps_tol, 
@@ -722,20 +836,22 @@ if __name__ == "__main__":
             pr_st_stop_criterion
         )
     if run_PR_CD:
-        PR_CD_setting = 'sConc{}-tConc{}-eTol{}-sDelta{}-tDelta{}-stop{}'.format(
+        PR_CD_setting = 'sCon{}-tCon{}-eTol{}-sDel{}-tDel{}-stop{}-batch{}'.format(
             pr_source_conc_type, 
             pr_target_conc_type,
             pr_cd_eps_tol, 
             pr_cd_source_delta, 
             pr_cd_target_delta,
-            pr_cd_stop_criterion
+            pr_cd_stop_criterion,
+            pr_cd_batch_size
         )
     
     print(f'Running with setting: {setting}...\n')
     
     for seed in tqdm(range(0, n_seeds)):
         # training_schedule = ['variable', 'fix']
-        paths_dict_curr, PR_ST_paths_dict_curr, PR_CD_paths_dict_curr = training_function(
+        paths_dict_curr, PR_ST_paths_dict_curr, PR_CD_paths_dict_curr, alarm_df_curr = training_function(
+            args,
             dataset0, 
             dataset0_name, 
             dataset1, 
@@ -770,7 +886,9 @@ if __name__ == "__main__":
             pr_cd_source_delta=pr_cd_source_delta,
             pr_cd_target_delta=pr_cd_target_delta,
             pr_cd_stop_criterion=pr_cd_stop_criterion,
-            init_ctm_on_cal_set=init_ctm_on_cal_set
+            pr_cd_batch_size=pr_cd_batch_size,
+            init_ctm_on_cal_set=init_ctm_on_cal_set,
+            proportion_holdout=proportion_holdout
         )
         for method in methods:
             paths_dict_all[method] = pd.concat([paths_dict_all[method], paths_dict_curr[method]], ignore_index=True)
@@ -784,9 +902,16 @@ if __name__ == "__main__":
                                                                       PR_CD_paths_dict_curr['PR_CD_cp_'+method]],\
                                                                      ignore_index=True)
         
+        if (seed == 0):
+            alarm_df_all = alarm_df_curr
+        else:
+            alarm_df_all = pd.concat([alarm_df_all, alarm_df_curr], ignore_index=True)
+        
     ## Save all results together
     results_all = paths_dict_all[methods[0]]
     results_all['method'] = methods[0]
+    
+    
     
     if run_PR_ST:
         PR_ST_results_all = PR_ST_paths_dict_all['PR_ST_cp_'+methods[0]]
@@ -807,17 +932,21 @@ if __name__ == "__main__":
             PR_CD_results_all = pd.concat([PR_CD_results_all, PR_CD_paths_dict_all['PR_CD_cp_'+method]], ignore_index=True)
         
         
-    results_all.to_csv(f'../results/{setting}.csv')
+    results_all.to_csv(f'../results/{date.today()}_{setting}_v4.csv')
+    
+    alarm_df_all.to_csv(f'../results/{date.today()}_Alarms_{setting}_v4.csv')
     
     if run_PR_ST:
-        PR_ST_results_all.to_csv(f'../results/{setting}_PR_ST-{PR_ST_setting}.csv')
+        PR_ST_results_all.to_csv(f'../results/{date.today()}_{setting}_PR_ST-{PR_ST_setting}_v4.csv')
     if run_PR_CD:
-        PR_CD_results_all.to_csv(f'../results/{setting}_PR_CD-{PR_CD_setting}.csv')
+        PR_CD_results_all.to_csv(f'../results/{date.today()}_{setting}_PR_CD-{PR_CD_setting}_v4.csv')
     
     
     ## Preparation for plotting
     sigmas_0_means_dict, sigmas_1_means_dict = {}, {}
     sigmas_0_stderr_dict, sigmas_1_stderr_dict = {}, {}
+    cusum_0_means_dict, cusum_1_means_dict = {}, {}
+    cusum_0_stderr_dict, cusum_1_stderr_dict = {}, {}
     martingales_0_means_dict, martingales_1_means_dict = {}, {}
     martingales_0_stderr_dict, martingales_1_stderr_dict = {}, {}
     errors_0_means_dict, errors_1_means_dict = {}, {}
@@ -847,6 +976,8 @@ if __name__ == "__main__":
 
         sigmas_0_means, sigmas_1_means = [], []
         sigmas_0_stderr, sigmas_1_stderr = [], []
+        cusum_0_means, cusum_1_means = [], []
+        cusum_0_stderr, cusum_1_stderr = [], []
         martingales_0_means, martingales_1_means = [], []
         martingales_0_stderr, martingales_1_stderr = [], []
         errors_0_means, errors_1_means = [], []
@@ -865,6 +996,10 @@ if __name__ == "__main__":
             sigmas_0_means.append(paths_all[['sigmas_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
             sigmas_0_stderr.append(paths_all[['sigmas_0_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
             
+            cusum_0_means.append(paths_all[['cusum_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
+            cusum_0_stderr.append(paths_all[['cusum_0_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
+
+#             pdb.set_trace()
             martingales_0_means.append(paths_all[['martingales_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
             martingales_0_stderr.append(paths_all[['martingales_0_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
 
@@ -926,6 +1061,10 @@ if __name__ == "__main__":
                 sigmas_1_means.append(paths_all_abs[['sigmas_1_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
                 sigmas_1_stderr.append(paths_all[['sigmas_1_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
                 
+                cusum_1_means.append(paths_all[['cusum_1_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
+                cusum_1_stderr.append(paths_all[['cusum_1_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
+
+                
                 martingales_1_means.append(paths_all[['martingales_1_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
                 martingales_1_stderr.append(paths_all[['martingales_1_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
 
@@ -947,6 +1086,8 @@ if __name__ == "__main__":
                 
         sigmas_0_means_dict[method], sigmas_1_means_dict[method] = sigmas_0_means, sigmas_1_means
         sigmas_0_stderr_dict[method], sigmas_1_stderr_dict[method] = sigmas_0_stderr, sigmas_1_stderr
+        cusum_0_means_dict[method], cusum_1_means_dict[method] = cusum_0_means, cusum_1_means
+        cusum_0_stderr_dict[method], cusum_1_stderr_dict[method] = cusum_0_stderr, cusum_1_stderr
         martingales_0_means_dict[method], martingales_1_means_dict[method] = martingales_0_means, martingales_1_means
         martingales_0_stderr_dict[method], martingales_1_stderr_dict[method] = martingales_0_stderr, martingales_1_stderr
         errors_0_means_dict[method], errors_1_means_dict[method] = errors_0_means, errors_1_means
@@ -975,6 +1116,13 @@ if __name__ == "__main__":
         p_vals_pre_change_dict[method] = p_vals_pre_change
         p_vals_post_change_dict[method] = p_vals_post_change
     
+    if training_schedule == 'variable':
+        martingale = ["Shiryaev-Roberts", "Martingale"]
+    elif training_schedule == 'both':
+        martingale = ["CUSUM", "Shiryaev-Roberts", "Martingale"]
+    else:
+        martingale = ["CUSUM", "Martingale"]
+
         
     plot_martingale_paths(
         dataset0_paths_dict=sigmas_0_means_dict,
@@ -997,7 +1145,7 @@ if __name__ == "__main__":
         change_point_index=change_point_index,
         title="Average paths of Shiryaev-Roberts Procedure",
         ylabel="Shiryaev-Roberts Statistics",
-        martingale=["Shiryaev-Roberts", "martingale"],
+        martingale=martingale,
         dataset0_shift_type=dataset0_shift_type,
         cov_shift_bias=cov_shift_bias,
         label_shift_bias=label_shift,
@@ -1016,6 +1164,9 @@ if __name__ == "__main__":
         widths_0_upper_q_dict=widths_0_upper_q_dict,
         methods=methods,
         schedule=training_schedule,
-        num_test_unshifted=num_test_unshifted
+        num_test_unshifted=num_test_unshifted,
+        cusum_0_means_dict=cusum_0_means_dict,
+        cusum_0_stderr_dict=cusum_0_stderr_dict
     )
     print('\nProgram done!')
+    print(f'Total runtime in min : {(time.time() - begin_script_time)/60}')

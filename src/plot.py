@@ -17,7 +17,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
                           coverage_0_stderr_dict=[],pvals_0_means_dict=[], pvals_0_stderr_dict=[], widths_0_medians_dict=[], \
                           widths_0_lower_q_dict=[],widths_0_upper_q_dict=[],methods=['none'], severity=None, \
                           schedule='variable', num_test_unshifted=1000, title_size=28, x_label_size=25, y_label_size=25, \
-                          legend_size=20, x_tick_size=18, y_tick_size=18):
+                          legend_size=20, x_tick_size=18, y_tick_size=18, cusum_0_means_dict=None, cusum_0_stderr_dict=None):
     """
     Plot martingale paths for red wine and white wine groups over time, similar to Figure 2 in the paper.
     
@@ -38,8 +38,8 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
         plot_image_data = 'mnist_cifar_'
     
     method_name_dict = {'fixed_cal_dyn' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
-    stat_validities = {'Shiryaev-Roberts' : 'Scheduled', 'Martingale' : 'Anytime-Valid'}
-    stat_formal = {'Shiryaev-Roberts' : '($\sum_{i=0}^{t-1} M_t / M_i$)', 'Martingale' : '($M_t / M_0$)'}
+    stat_validities = {'CUSUM' : 'Fixed Schedule', 'Shiryaev-Roberts' : 'Variable Schedule', 'Martingale' : 'Anytime-Valid'}
+    stat_formal = {'CUSUM' : '($\max_{i=0, ..., t-1} M_t / M_i$)', 'Shiryaev-Roberts' : '($\sum_{i=0}^{t-1} M_t / M_i$)', 'Martingale' : '($M_t / M_0$)'}
 
     ####################
     ## Plot test statistic AND martingale paths

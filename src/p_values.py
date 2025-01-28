@@ -26,7 +26,7 @@ def random_forest_weight_est(X, class_labels, ntree=100):
 
 
 def offline_lik_ratio_estimates_images(cal_test_w_est_loader, test_loader, dataset0_name = 'mnist', \
-                                       classifier='MLP', device=None, setting='', epochs=10, lr=1e-3):
+                                       classifier='MLP', device=None, setting='', epochs=60, lr=1e-3):
 
      # Train smaller MLP model to estimate source/target probabilities
     if dataset0_name == 'mnist':
@@ -172,6 +172,130 @@ def calculate_p_values_and_quantiles(conformity_scores, alpha, cs_type='abs'):
     return p_values , q_lower, q_upper
 
 
+
+
+def calculate_cp_quantiles_holdout(cal_scores, holdout_scores, alpha, cs_type='abs'):
+    """
+    Calculate the conformal quantiles on holdout_scores, using set constructed on cal_scores.
+    """
+    n = len(holdout_scores)
+    q_lower = np.zeros(n)
+    q_upper = np.zeros(n)
+    
+    ## Quantiles: Each ith quantile is computed before labels observed, with conservative validity
+    if (cs_type != 'signed'):
+        cal_scores_inf = np.concatenate((cal_scores, [np.inf])) ## inf in place of test pt cs for conservativeness
+        
+        for i in range(n):
+            ## For each i, q_upper[i] := quantile(conformity_scores[:i] \cup inf, 1-alpha)
+                        ## q_lower[i] := -q_upper[i]
+            q_upper[i] = np.quantile(cal_scores, 1-alpha)
+        q_lower = - q_upper
+        
+    else:
+        ## Intervals for signed scores computed by (alpha/2) lower q, (1-alpha/2) upper q
+        cal_scores_inf = np.concatenate((cal_scores, [np.inf]))
+        cal_scores_neg_inf = np.concatenate((cal_scores, [-np.inf]))
+        
+        for i in range(n):
+            ## For each i, q_upper[i] := quantile(conformity_scores[:i] \cup inf, 1-alpha/2)
+                        ## q_lower[i] := quantile(conformity_scores[:i] \cup -inf, alpha/2)
+            q_upper[i] = np.quantile(cal_scores, 1-alpha/2)
+            q_lower[i] = np.quantile(cal_scores, alpha/2)
+    
+    ## Replace nan with appropriate inf values
+    np.nan_to_num(q_lower, copy=False, nan=-np.inf, neginf=-np.inf)
+    np.nan_to_num(q_upper, copy=False, nan=np.inf, posinf=np.inf)
+        
+    return q_lower, q_upper
+
+
+
+
+def calculate_weighted_cp_quantiles_holdout(cal_propper_scores, holdout_test_scores, W_cal_holdout_test, n_cal, adapt_start, alpha, cs_type='abs'):
+    '''
+    cal_propper_scores  : array length int(adapt_start/2)
+    holdout_test_scores : array length n_test - int(adapt_start/2)
+    W_cal_holdout_test  : matrix shape (T, adapt_start + T)
+    '''
+    
+    ## Note: W_cal_holdout_test is a matrix size (num_test, adapt_start + num_test)
+    
+    n_cal_propper = len(cal_propper_scores) ## int(n_cal/2)
+    n_holdout = n_cal - n_cal_propper ## 
+    n_holdout_test = len(holdout_test_scores)
+    adapt_start_min_cal_prop = adapt_start - n_cal_propper
+    T = len(W_cal_holdout_test)
+    n_test = n_holdout_test - n_holdout
+    wq_lower = np.zeros(n_holdout_test) ## lower weighted quantiles
+    wq_upper = np.zeros(n_holdout_test) ## upper weighted quantiles
+#     print("n_cal ", n_cal)
+#     print("T ", T)
+#     print("len(W_cal_holdout_test) ", len(W_cal_holdout_test))
+#     assert(n_cal_propper + n_holdout_test == np.shape(W_cal_holdout_test)[1])
+    
+    ## Holdout set (ie, prior to starting adaptation) is assumed exchangeable from source distribution,
+    ## so weights reduce to uniform weights
+    wq_lower[:adapt_start_min_cal_prop], wq_upper[:adapt_start_min_cal_prop] = calculate_cp_quantiles_holdout(cal_propper_scores, holdout_test_scores[:adapt_start_min_cal_prop], alpha, cs_type)
+    
+    ## Quantiles: Each ith quantile is computed before labels observed, with conservative validity
+    if (cs_type != 'signed'):
+        cal_propper_scores_inf = np.concatenate((cal_propper_scores, [np.inf])) ## inf in place of test pt cs for conservativeness
+        
+        ## Which weights to include
+        idx_include = np.concatenate((np.repeat(True, n_cal_propper), np.repeat(False, n_holdout), np.repeat(False, n_test)), axis=0) 
+        
+        ## Note: in loop here, t_ := t-1 for zero-indexing
+        for t_ in range(0, T):
+            
+            ## idx_include implements indices for 'fixed cal' ie, comparing to [0:adapt_start] \cup adapt_start + t_ 
+            idx_include[adapt_start+t_] = True ## Move to curr test point
+            if (t_ > 0):
+                idx_include[adapt_start+t_] = False ## Exclude most recent test point again (except at start, is a cal point)
+            W_t = W_cal_holdout_test[t_][idx_include]
+            
+            ## Normalize weights on subset of weights
+            normalized_weights_t = W_t / np.sum(W_t) ## Should be length n_cal+1
+                
+            ## For each i, q_upper[i] := quantile(conformity_scores[:i] \cup inf, 1-alpha)
+                        ## q_lower[i] := -q_upper[i]
+            wq_upper[n_holdout+t_] = weighted_quantile(cal_propper_scores_inf, normalized_weights_t, 1-alpha)
+        wq_lower = - wq_upper
+        
+    else:
+        ## Intervals for signed scores computed by (alpha/2) lower q, (1-alpha/2) upper q
+        cal_propper_scores_inf = np.concatenate((cal_propper_scores, [np.inf]))
+        cal_propper_scores_neg_inf = np.concatenate((cal_propper_scores, [-np.inf]))
+        
+        ## Which weights to include
+        idx_include = np.concatenate((np.repeat(True, n_cal_propper), np.repeat(False, T)), axis=0) 
+        
+        ## Note: in loop here, t_ := t-1 for zero-indexing
+        for t_ in range(0, T):
+            
+            ## idx_include implements indices for 'fixed cal' ie, comparing to [0:adapt_start] \cup adapt_start + t_ 
+            idx_include[adapt_start+t_] = True ## Move to curr test point
+            if (t_ > 0):
+                idx_include[adapt_start+t_] = False ## Exclude most recent test point again (except at start, is a cal point)
+            W_t = W_cal_holdout[t_][idx_include]
+            
+            ## Normalize weights on subset of weights
+            normalized_weights_t = W_t / np.sum(W_t) ## Should be length n_cal+1
+                
+            ## For each i, q_upper[i] := quantile(conformity_scores[:i] \cup inf, 1-alpha)
+                        ## q_lower[i] := -q_upper[i]
+            wq_upper[n_holdout+t_] = weighted_quantile(cal_propper_scores_inf, normalized_weights_t, 1-alpha/2)
+            wq_lower[n_holdout+t_] = weighted_quantile(cal_propper_scores_neg_inf, normalized_weights_t, 1-alpha/2)
+            
+    ## Replace nan with appropriate inf values
+    np.nan_to_num(wq_lower, copy=False, nan=-np.inf, neginf=-np.inf)
+    np.nan_to_num(wq_upper, copy=False, nan=np.inf, posinf=np.inf)
+        
+    return wq_lower, wq_upper
+
+
+
+
 ## Note: This is for calculating the weighted p-values once the normalized weights have already been calculated
 def calculate_weighted_p_values_and_quantiles(args, conformity_scores, W_i, adapt_start, method, depth=1):
     """
@@ -186,10 +310,15 @@ def calculate_weighted_p_values_and_quantiles(args, conformity_scores, W_i, adap
     wp_values = np.zeros(n) ## p-values calculated with weighted conformity scores
     wq_lower = np.zeros(n) ## lower weighted quantiles
     wq_upper = np.zeros(n) ## upper weighted quantiles
+    
 
-    ## For 0:adapt_start, compute as standard p-values and quantiles
+#     ## For 0:adapt_start, compute as standard p-values and quantiles
+#     if (args is None):
+#         wp_values[0:adapt_start], wq_lower[0:adapt_start], wq_upper[0:adapt_start] = \
+#                                         calculate_p_values_and_quantiles(conformity_scores[0:adapt_start], alpha, cs_type)
+#     else:
     wp_values[0:adapt_start], wq_lower[0:adapt_start], wq_upper[0:adapt_start] = \
-                                        calculate_p_values_and_quantiles(conformity_scores[0:adapt_start], args.alpha, args.cs_type) 
+                                        calculate_p_values_and_quantiles(conformity_scores[0:adapt_start], args.alpha, args.cs_type)
     
     ## For computing (conservative) weighted quantiles, append infinity (which takes place of test pt score)
     conformity_scores_inf = np.concatenate((conformity_scores, [np.inf]))
