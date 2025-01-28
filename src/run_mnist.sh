@@ -5,11 +5,11 @@ do
     python -W ignore main_mnist_cifar.py \
         --dataset0 mnist \
         --dataset1 mnist_c \
-        --n_seeds 1 \
-        --cs_type neg_log \
-        --methods fixed_cal_offline \
+        --n_seeds 2 \
+        --cs_type probability \
+        --methods baseline \
         --schedule variable \
-        --epochs 1 \
+        --epochs 3 \
         --lr 0.001 \
         --bs 64 \
         --init_phase 500 \
@@ -18,6 +18,9 @@ do
         --severity 1 \
         --mixture_ratio_val 0.1 \
         --mixture_ratio_test 0.1 \
-        --val_set_size 1000 \
-        --errs_window 1
+        --val_set_size 100 \
+        --errs_window 1 \
+        --sr_threshold 1e30 \
+        --mt_threshold 1e30 \
+        --verbose 
 done

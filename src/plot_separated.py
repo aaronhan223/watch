@@ -16,32 +16,14 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
                           setting=None, methods=['none'], severity=None, 
                           title_size=28, x_label_size=25, y_label_size=25, 
                           legend_size=20, x_tick_size=18, y_tick_size=18):
-    """
-    Plot martingale paths for red wine and white wine groups over time, similar to Figure 2 in the paper.
-    
-    Parameters:
-    - dataset0_paths: List of arrays, where each array contains the martingale values for a path in the dataset0 group.
-    - dataset0_name: Name of dataset0.
-    - dataset1_paths: List of arrays, where each array contains the martingale values for a path in the dataset1 group.
-    - cs_0: Conformity scores on test dataset0
-    - cs_1: Conformity scores on test dataset1
-    - change_point_index: The index where the change point occurs (vertical line).
-    - title: Title of the plot.
-    - xlabel: Label for the x-axis.
-    - ylabel: Label for the y-axis.
-    - plot_errors: Whether to also plot absolute errors.
-    """
     plot_image_data = ''
     if (dataset0_name in ['mnist', 'cifar10']):
         plot_image_data = 'mnist_cifar_'
     
-    method_name_dict = {'fixed_cal_dyn' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
+    method_name_dict = {'fixed_cal_offline' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
     stat_validities = {'Shiryaev-Roberts' : 'Scheduled', 'Martingale' : 'Anytime-Valid'}
     stat_formal = {'Shiryaev-Roberts' : '($\sum_{i=0}^{t-1} M_t / M_i$)', 'Martingale' : '($M_t / M_0$)'}
 
-    ####################
-    ## Plot test statistic AND martingale paths
-    ####################
     paths_0_dicts_all = [dataset0_paths_dict, martingales_0_dict]
     paths_0_stderr_dicts_all = [dataset0_paths_stderr_dict, martingales_0_stderr_dict]
     paths_1_dicts_all = [dataset1_paths_dict, martingales_1_dict]
@@ -59,8 +41,8 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
         for m_i, method in enumerate(methods):
             
             if severity is not None:
-                
-                plt.plot(paths_0_dicts_all[method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i}')
+                pdb.set_trace()
+                plt.plot(paths_0_dicts_all[0][method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i}')
                 plt.plot(dataset1_paths_dict[method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i+1}')
 
             else:
@@ -102,15 +84,13 @@ def plot_errors(errors_0_means_dict, errors_0_stderr_dict,
                 title_size=28, x_label_size=25, y_label_size=25, 
                 legend_size=20, x_tick_size=18, y_tick_size=18):
     
-    method_name_dict = {'fixed_cal_dyn' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
+    method_name_dict = {'fixed_cal_offline' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
     if (dataset0_name in ['mnist', 'cifar10']):
         plot_image_data = 'mnist_cifar_'
 
     plt.figure(figsize=(10, 8))
     
     for m_i, method in enumerate(methods):
-        ### Plotting errors (ie, abs(scores))
-        # Plot dataset0 group with dashed lines
         for i, errs in enumerate(errors_0_means_dict[method]):
             plt.plot(np.arange(0, len(errs)*errs_window, errs_window), errs, label=method_name_dict[method], linestyle='-', color=f'C{m_i}', linewidth=3)
 
@@ -118,12 +98,6 @@ def plot_errors(errors_0_means_dict, errors_0_stderr_dict,
                                 (errs-np.array(errors_0_stderr_dict[method][i])).flatten(), \
                                 (errs+np.array(errors_0_stderr_dict[method][i])).flatten(), alpha=0.5, color=f'C{m_i}')
 
-#             # Plot dataset1 group with solid lines
-#             for i, errs in enumerate(errors_1_means_dict[method]):
-#                 plt.plot(np.abs(errs), label=dataset1_name + f' {method}, fold {i+1}', linestyle='-', color=f'C{m_i+i+3}')
-
-    # Add vertical line at the change point
-    # plt.axvline(x=change_point_index-num_test_unshifted, color='gray', linestyle=':', linewidth=3, label='Deployment time')
     plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Changepoint')
 
     plt.xlabel(xlabel, fontsize=x_label_size)
@@ -154,17 +128,12 @@ def plot_coverage(coverage_0_means_dict, coverage_0_stderr_dict, errs_window, da
                   setting=None, methods=['none'], severity=None, title_size=28, x_label_size=25, y_label_size=25, 
                   legend_size=20, x_tick_size=18, y_tick_size=18):
 
-    method_name_dict = {'fixed_cal_dyn' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
+    method_name_dict = {'fixed_cal_offline' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
     if (dataset0_name in ['mnist', 'cifar10']):
         plot_image_data = 'mnist_cifar_'
-
-    ## Plot coverage
-    print("plotting coverage")
     plt.figure(figsize=(10, 8))
     
-    # Plot dataset0 group with dashed lines
     for m_i, method in enumerate(methods):
-
         for i, coverage in enumerate(coverage_0_means_dict[method]):
             plt.plot(np.arange(0, len(coverage)*errs_window, errs_window), coverage, label=method_name_dict[method], linestyle='-', color=f'C{m_i}', linewidth=3)
             plt.fill_between(np.arange(0, len(coverage)*errs_window, errs_window), \
@@ -175,13 +144,11 @@ def plot_coverage(coverage_0_means_dict, coverage_0_stderr_dict, errs_window, da
     plt.ylim([0.85, 1.0])
     plt.yticks(np.arange(0.85, 1.01, 0.05))
 
-    
     if severity is not None:
         plt.title(f'Coverage, {dataset0_shift_type} shift, \n {dataset0_name}, severity={severity}, n_seeds={n_seeds}, {cs_type} Scores', fontsize=title_size)
     else:
         plt.title(f'Coverage \n (Prediction Safety)', fontsize=title_size)
     plt.ylabel(r'Mean Coverage ($\rightarrow$)', fontsize=y_label_size)
-    # plt.axvline(x=change_point_index-num_test_unshifted, color='gray', linestyle=':', linewidth=3, label='Deployment time')
     plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Changepoint')
     plt.xlabel(xlabel, fontsize=x_label_size)
     plt.xticks(fontsize=x_tick_size)        
@@ -198,17 +165,12 @@ def plot_widths(widths_0_medians_dict, dataset0_name, errs_window, change_point_
                 setting=None, methods=['none'], severity=None, title_size=28, x_label_size=25, y_label_size=25, 
                 legend_size=20, x_tick_size=18, y_tick_size=18):
 
-    method_name_dict = {'fixed_cal_dyn' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
+    method_name_dict = {'fixed_cal_offline' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
     if (dataset0_name in ['mnist', 'cifar10']):
         plot_image_data = 'mnist_cifar_'
-
-    ## Plot widths
-    print("plotting widths")
     plt.figure(figsize=(10, 8))
     
-    # Plot dataset0 group with dashed lines
     for m_i, method in enumerate(methods):
-
         for i, widths in enumerate(widths_0_medians_dict[method]):
             
             plt.plot(np.arange(0, len(widths)*errs_window, errs_window), widths, label=method_name_dict[method], linestyle='-', color=f'C{m_i}', linewidth=3)
@@ -234,12 +196,10 @@ def plot_widths(widths_0_medians_dict, dataset0_name, errs_window, change_point_
 def plot_p_vals(p_vals_pre_change_dict, p_vals_post_change_dict, dataset0_name, 
                 setting=None, methods=['none'], title_size=28, x_label_size=25, x_tick_size=18):
 
-    method_name_dict = {'fixed_cal_dyn' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
+    method_name_dict = {'fixed_cal_offline' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
     if (dataset0_name in ['mnist', 'cifar10']):
         plot_image_data = 'mnist_cifar_'
 
-    ## Plot p-values
-    ## Plotting histograms of p-values
     fig, ax = plt.subplots(1, 2,figsize=(10, 8))
     # ax[0].ticklabel_format(axis='y', style='sci', scilimits=(0, 0))
     # ax[1].ticklabel_format(axis='y', style='sci', scilimits=(0, 0))

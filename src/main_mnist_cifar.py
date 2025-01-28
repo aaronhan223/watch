@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from plot import plot_martingale_paths
+from plot_separated import *
 from tqdm import tqdm
 import torch.optim as optim
 import torch.nn.functional as F
@@ -11,6 +11,8 @@ from martingales import *
 from p_values import *
 import argparse
 import random
+from podkopaev_ramdas.baseline_alg import podkopaev_ramdas_algorithm1, podkopaev_ramdas_changepoint_detection
+import time
 
 
 def set_seed(seed: int):
@@ -217,11 +219,6 @@ def train_and_evaluate(args, train_loader_0, test_loader_0, device, setting, loa
         cs_1 = -np.log(corrupt_pred + epsilon)
     
     #### Computing (unnormalized) weights
-    # TODO: @Drew, I removed the weight computation module since it requires special design for image data
-    # the implementation above is for regular CTMs, and the cs computation for WCTMs
-    # val_loader_mixed and test_loader_mixed are validation and test set that are mixed with certain ratio of corrupted data
-    # test_w_est_0 and test_w_est_1 are test data used to initialize the density ratio estimator from clean and corrupted dataset
-    
     ### NOTE: 'fixed_cal_offline' is the primary method implemented for now.
     for method in args.methods:
 
@@ -229,59 +226,44 @@ def train_and_evaluate(args, train_loader_0, test_loader_0, device, setting, loa
             ###
             W_0_dict[method] = offline_lik_ratio_estimates_images(cal_test_w_est_loader_0, test_loader_0, args.dataset0, device=device, setting=setting)
             W_1_dict[method] = offline_lik_ratio_estimates_images(cal_test_w_est_loader_1, test_loader_mixed, args.dataset0, device=device, setting=setting)
-
-        elif (method in ['fixed_cal', 'one_step_est']):
-            ## Estimating likelihood ratios for each cal, test point
-            ## np.shape(W_i) = (T, n_cal + T)
-            raise Exception("Method not yet implemented")
-#             W_i = online_lik_ratio_estimates_images(X_cal, X_test_w_est, X_test_0_only, adapt_start=n_cal)
-
-        elif (method in ['fixed_cal_dyn']):
-            ## fixed_cal except with dynamically/automatically determined start to adaptation
-#             W_i = online_lik_ratio_estimates_images(X_cal, X_test_w_est, X_test_0_only, adapt_start=adapt_starts[i])
-            raise Exception("Method not yet implemented")
-
-        elif (method in ['fixed_cal_oracle']):
-            ## Oracle one-step likelihood ratios
-            ## np.shape(W_i) = (n_cal + T, )
-            raise Exception("Method not yet implemented")
-
-#             X_full = np.concatenate((X_train, X_cal_test_0), axis = 0)
-
-#             W_i = get_w(x_pca=X_train, x=X_cal_test_0, dataset=dataset0_name, bias=cov_shift_bias) 
-
         else:
             ## Else: Unweighted / uniform-weighted CTM
-            W_0_dict[method] = np.ones(len(val_loader_0.dataset) + len(test_loader_0.dataset))
-            W_1_dict[method] = np.ones(len(val_loader_0.dataset) + len(test_loader_0.dataset))
+            W_0_dict[method] = None
+            W_1_dict[method] = None
 
     return cs_0, cs_1, clean_loss, corrupt_loss, W_0_dict, W_1_dict
 
 
-def retrain_count(args, conformity_score, method, sr_threshold=1e6, cu_confidence=0.99, W=None):
+def retrain_count(args, conformity_score, method, cu_confidence=0.99, W=None):
     p_values = calculate_p_values(conformity_score)
     
     if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline']):
-        p_values, _, _ = calculate_weighted_p_values_and_quantiles(args, conformity_score, W, args.val_set_size, method)
-    retrain_m, martingale_value = composite_jumper_martingale(p_values, verbose=verbose)
+        p_values, q_lower, q_upper = calculate_weighted_p_values_and_quantiles(args, conformity_score, W, args.val_set_size, method)
+    else:
+        p_values, q_lower, q_upper = calculate_p_values_and_quantiles(conformity_score, args.alpha, args.cs_type)
+    
+    if args.init_ctm_on_cal_set:
+        retrain_m, martingale_value = composite_jumper_martingale(p_values, verbose=verbose, threshold=args.mt_threshold)
+    else:
+        retrain_m, martingale_value = composite_jumper_martingale(p_values[args.val_set_size:], verbose=verbose, threshold=args.mt_threshold)
 
     if args.schedule == 'variable':
-        retrain_s, sigma = shiryaev_roberts_procedure(martingale_value, sr_threshold, args.verbose)
+        retrain_s, sigma = shiryaev_roberts_procedure(martingale_value, args.sr_threshold, args.verbose)
         
     elif (args.schedule == 'basic'):
         print("plotting martingale (wealth) values directly")
-        retrain_s, sigma = shiryaev_roberts_procedure(martingale_value, sr_threshold, args.verbose)
+        retrain_s, sigma = shiryaev_roberts_procedure(martingale_value, args.sr_threshold, args.verbose)
         sigma = martingale_value
     else:
         retrain_s, sigma = cusum_procedure(martingale_value, cu_confidence, args.verbose)
-    return retrain_m, retrain_s, martingale_value, sigma, p_values
+    return retrain_m, retrain_s, martingale_value, sigma, p_values, q_lower, q_upper
 
 
 def training_function(args, train_loader_0, test_loader_0, device, setting, val_loader_0=None, loader_1=None, 
                       cal_test_w_est_loader_0=None, cal_test_w_est_loader_1=None, test_loader_mixed=None):
     
     if cal_test_w_est_loader_0 is None:
-        cs_0, cs_1, clean_loss, corrupt_loss = train_and_evaluate(
+        cs_0, cs_1, clean_loss, corrupt_loss, _, _ = train_and_evaluate(
             args=args,
             train_loader_0=train_loader_0,
             val_loader_0=val_loader_0,
@@ -305,30 +287,53 @@ def training_function(args, train_loader_0, test_loader_0, device, setting, val_
 
     martingales_0_dict, martingales_1_dict = {}, {}
     sigmas_0_dict, sigmas_1_dict = {}, {}
-    retrain_m_count_0_dict, retrain_s_count_0_dict = {}, {}
-    retrain_m_count_1_dict, retrain_s_count_1_dict = {}, {}
+    # retrain_m_count_0_dict, retrain_s_count_0_dict = {}, {}
+    # retrain_m_count_1_dict, retrain_s_count_1_dict = {}, {}
     p_values_0_dict = {}
     coverage_0_dict = {}
-    
+    widths_0_dict = {}
+
+    if args.run_PR_ST:
+        ## Podkopaev Ramdas sequential testing method
+        PR_ST_alarm_0_dict, PR_ST_alarm_1_dict = {}, {}
+        PR_ST_source_UCB_tols_0_dict, PR_ST_source_UCB_tols_1_dict = {}, {}
+        PR_ST_target_LCBs_0_dict, PR_ST_target_LCBs_1_dict = {}, {}
+        
+    if args.run_PR_CD:
+        ## Podkopaev Ramdas changepoint detection method
+        PR_CD_alarm_0_dict, PR_CD_alarm_1_dict = {}, {}
+        PR_CD_source_UCB_tols_0_dict, PR_CD_source_UCB_tols_1_dict = {}, {}
+        PR_CD_target_LCBs_0_dict, PR_CD_target_LCBs_1_dict = {}, {}
+
     for method in args.methods:
         martingales_0_dict[method], martingales_1_dict[method] = [], []
         sigmas_0_dict[method], sigmas_1_dict[method] = [], []
-        retrain_m_count_0_dict[method], retrain_s_count_0_dict[method] = [], []
-        retrain_m_count_1_dict[method], retrain_s_count_1_dict[method] = [], []
+        # retrain_m_count_0_dict[method], retrain_s_count_0_dict[method] = [], []
+        # retrain_m_count_1_dict[method], retrain_s_count_1_dict[method] = [], []
         p_values_0_dict[method] = []
         coverage_0_dict[method] = []
-        
+        widths_0_dict[method] = []
+
+        if args.run_PR_ST:
+            PR_ST_alarm_0_dict['PR_ST_cp_'+method], PR_ST_alarm_1_dict['PR_ST_cp_'+method] = [], []
+            PR_ST_source_UCB_tols_0_dict['PR_ST_cp_'+method], PR_ST_source_UCB_tols_1_dict['PR_ST_cp_'+method] = [], []
+            PR_ST_target_LCBs_0_dict['PR_ST_cp_'+method], PR_ST_target_LCBs_1_dict['PR_ST_cp_'+method] = [], []
+            
+        if args.run_PR_CD:
+            PR_CD_alarm_0_dict['PR_CD_cp_'+method], PR_CD_alarm_1_dict['PR_CD_cp_'+method] = [], []
+            PR_CD_source_UCB_tols_0_dict['PR_CD_cp_'+method], PR_CD_source_UCB_tols_1_dict['PR_CD_cp_'+method] = [], []
+            PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method], PR_CD_target_LCBs_1_dict['PR_CD_cp_'+method] = [], []
+
     for method in args.methods:
         if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline']):
-            m_0, s_0, martingale_value_0, sigma_0, p_vals = retrain_count(args=args, conformity_score=cs_0, W=W_0_dict[method], method=method)
+            m_0, s_0, martingale_value_0, sigma_0, p_vals, q_lower, q_upper = retrain_count(args=args, conformity_score=cs_0, W=W_0_dict[method], method=method)
         else:
             ## Run baseline with uniform weights
-            m_0, s_0, martingale_value_0, sigma_0, p_vals = retrain_count(args=args, conformity_score=cs_0, method=method)
-
-        if m_0:
-            retrain_m_count_0_dict[method] += 1
-        if s_0:
-            retrain_s_count_0_dict[method] += 1
+            m_0, s_0, martingale_value_0, sigma_0, p_vals, q_lower, q_upper = retrain_count(args=args, conformity_score=cs_0, method=method)
+        # if m_0:
+        #     retrain_m_count_0_dict[method] += 1
+        # if s_0:
+        #     retrain_s_count_0_dict[method] += 1
             
         martingales_0_dict[method].append(martingale_value_0)
         sigmas_0_dict[method].append(sigma_0)
@@ -336,19 +341,93 @@ def training_function(args, train_loader_0, test_loader_0, device, setting, val_
         ## Storing p-values
         p_values_0_dict[method].append(p_vals)
         coverage_0_dict[method].append(p_vals <= 0.9)
+        coverage_vals = ((q_lower <= cs_0)&(q_upper >= cs_0))
+        width_vals = q_upper - q_lower
+
+        if args.run_PR_ST:
+            miscoverage_losses = 1 - coverage_vals
+            
+            ## Run Podkopaev Ramdas baseline on miscoverage losses for corresponding CP method
+            print("Running PodRam algorithm 1")
+            start_time = time.time()
+            PR_ST_alarm_test_idx, PR_ST_source_UCB_tol, PR_ST_target_LCBs = podkopaev_ramdas_algorithm1(\
+                                                                                    miscoverage_losses[:args.val_set_size], \
+                                                                                    miscoverage_losses[args.val_set_size:], \
+                                                                                    source_conc_type=pr_source_conc_type, \
+                                                                                    target_conc_type=pr_target_conc_type, \
+                                                                                    eps_tol=pr_st_eps_tol, \
+                                                                                    source_delta=pr_st_source_delta, \
+                                                                                    target_delta=pr_st_target_delta,\
+                                                                                    stop_criterion=pr_st_stop_criterion)
+            print("Completed PodRam algorithm 1; runtime in min = ", (time.time()-start_time)/60)
+            
+            ## Record results for PodRam sequential testing baseline
+            if (PR_ST_alarm_test_idx is None):
+                PR_ST_alarm_0_dict['PR_ST_cp_'+method].append(None)
+            else:
+                PR_ST_alarm_0_dict['PR_ST_cp_'+method].append(PR_ST_alarm_test_idx)
+                
+            PR_ST_source_UCB_tols_0_dict['PR_ST_cp_'+method].append(PR_ST_source_UCB_tol)
+            PR_ST_target_LCBs_0_dict['PR_ST_cp_'+method].append(PR_ST_target_LCBs)
+
+        if args.run_PR_CD:
+
+            print("Running PodRam changepoint detection algo")
+            start_time = time.time()
+            PR_CD_alarm_test_idx, PR_CD_source_UCB_tol, PR_CD_target_LCBs = podkopaev_ramdas_changepoint_detection(\
+                                                                                    miscoverage_losses[:args.val_set_size], \
+                                                                                    miscoverage_losses[args.val_set_size:], \
+                                                                                    source_conc_type=pr_source_conc_type, \
+                                                                                    target_conc_type=pr_target_conc_type, \
+                                                                                    eps_tol=pr_cd_eps_tol,\
+                                                                                    source_delta=pr_cd_source_delta, \
+                                                                                    target_delta=pr_cd_target_delta,\
+                                                                                    stop_criterion=pr_cd_stop_criterion)
+        
+            print("Completed PodRam changepoint detection algo; runtime in min = ", (time.time()-start_time)/60)
+            
+            ## Record results for PodRam changepoint detection method
+            if (PR_CD_alarm_test_idx is None):
+                PR_CD_alarm_0_dict['PR_CD_cp_'+method].append(None)
+            else:
+                PR_CD_alarm_0_dict['PR_CD_cp_'+method].append(PR_CD_alarm_test_idx)
+                
+            PR_CD_source_UCB_tols_0_dict['PR_CD_cp_'+method].append(PR_CD_source_UCB_tol)
+            PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method].append(PR_CD_target_LCBs)
+
+        if not args.init_ctm_on_cal_set:
+            p_vals = p_vals[args.val_set_size:]
+            coverage_vals = coverage_vals[args.val_set_size:]
+            width_vals = width_vals[args.val_set_size:]
+
+        p_values_0_dict[method].append(p_vals)
+        coverage_0_dict[method].append(coverage_vals)
+        widths_0_dict[method].append(width_vals)
+        
+    if not args.init_ctm_on_cal_set:
+        cs_0 = cs_0[args.val_set_size:]
+        clean_loss = clean_loss[args.val_set_size:] 
 
     for method in args.methods:
-        m_1, s_1, martingale_value_1, sigma_1, p_vals = retrain_count(args=args, conformity_score=cs_1, W=W_1_dict[method], method=method)
-        if m_1:
-            retrain_m_count_1_dict[method] += 1
-        if s_1:
-            retrain_s_count_1_dict[method] += 1
+        m_1, s_1, martingale_value_1, sigma_1, p_vals, q_lower, q_upper = retrain_count(args=args, conformity_score=cs_1, W=W_1_dict[method], method=method)
+        # if m_1:
+        #     retrain_m_count_1_dict[method] += 1
+        # if s_1:
+        #     retrain_s_count_1_dict[method] += 1
         martingales_1_dict[method].append(martingale_value_1)
         sigmas_1_dict[method].append(sigma_1)
         
     ## min_len : Smallest fold length, for clipping longer ones to all same length
-    min_len = np.min([len(sigmas_0_dict[method][i]) for i in range(0, len(sigmas_0_dict[method]))])
+    min_len_0 = np.min([len(sigmas_0_dict[method][i]) for i in range(0, len(sigmas_0_dict[method]))])
+    min_len_1 = np.min([len(sigmas_1_dict[method][i]) for i in range(0, len(sigmas_1_dict[method]))])
+    min_len = min(min_len_0, min_len_1)
     paths_dict = {}
+    PR_ST_paths_dict = {}
+    PR_ST_paths=None
+    
+    PR_CD_paths_dict = {}
+    PR_CD_paths=None
+
     for method in methods:
     
         paths = pd.DataFrame(np.c_[np.repeat(seed, min_len), np.arange(0, min_len)], columns = ['itrial', 'obs_idx'])
@@ -356,16 +435,40 @@ def training_function(args, train_loader_0, test_loader_0, device, setting, val_
         sigmas_1 = sigmas_1_dict[method]
         for k in range(0, len(sigmas_0_dict[method])):
             paths['sigmas_0_'+str(k)] = sigmas_0_dict[method][k][0:min_len]
+            paths['martingales_0_'+str(k)] = martingales_0_dict[method][k][0:min_len]
 #             paths['cs_0_'+str(k)] = cs_0[k][0:min_len]
             paths['losses_0_'+str(k)] = clean_loss[0:min_len]
             paths['pvals_0_'+str(k)] = p_values_0_dict[method][k][0:min_len]
             paths['coverage_0_'+str(k)] = coverage_0_dict[method][k][0:min_len]
+            paths['widths_0_'+str(k)] = widths_0_dict[method][k][0:min_len]
         for k in range(0, len(sigmas_1)):
             paths['sigmas_1_'+str(k)] = sigmas_1[k][0:min_len]
+            paths['martingales_1_'+str(k)] = martingales_1_dict[method][k][0:min_len]
 #             paths['cs_1_'+str(k)] = cs_1[k][0:min_len]
         paths_dict[method] = paths
-    
-    return paths_dict
+
+        if args.run_PR_ST:
+            ## PR_ST_cp baseline method:
+            PR_ST_min_len = len(PR_ST_target_LCBs_0_dict['PR_ST_cp_'+method][0])
+            PR_ST_paths = pd.DataFrame(np.c_[np.repeat(seed, PR_ST_min_len), np.arange(0, PR_ST_min_len)], columns = ['itrial', 'obs_idx'])
+            for k in range(0, len(PR_ST_source_UCB_tols_0_dict['PR_ST_cp_'+method])):
+                PR_ST_paths['PR_ST_alarm_0_'+str(k)] = PR_ST_alarm_0_dict['PR_ST_cp_'+method][k]
+                PR_ST_paths['PR_ST_UCBtol_0_'+str(k)] = PR_ST_source_UCB_tols_0_dict['PR_ST_cp_'+method][k]
+                PR_ST_paths['PR_ST_LCB_0_'+str(k)] = PR_ST_target_LCBs_0_dict['PR_ST_cp_'+method][k][0:PR_ST_min_len]
+                
+            PR_ST_paths_dict['PR_ST_cp_'+method] = PR_ST_paths
+            
+        if args.run_PR_CD:
+            ## PR_CD_cp baseline method:
+            PR_CD_min_len = len(PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method][0])
+            PR_CD_paths = pd.DataFrame(np.c_[np.repeat(seed, PR_CD_min_len), np.arange(0, PR_CD_min_len)], columns = ['itrial', 'obs_idx'])
+            for k in range(0, len(PR_CD_source_UCB_tols_0_dict['PR_CD_cp_'+method])):
+                PR_CD_paths['PR_CD_alarm_0_'+str(k)] = PR_CD_alarm_0_dict['PR_CD_cp_'+method][k]
+                PR_CD_paths['PR_CD_UCBtol_0_'+str(k)] = PR_CD_source_UCB_tols_0_dict['PR_CD_cp_'+method][k]
+                PR_CD_paths['PR_CD_LCB_0_'+str(k)] = PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method][k][0:PR_CD_min_len]
+                
+            PR_CD_paths_dict['PR_CD_cp_'+method] = PR_CD_paths
+    return paths_dict, PR_ST_paths_dict, PR_CD_paths_dict
 
 
 if __name__ == "__main__":
@@ -393,6 +496,8 @@ if __name__ == "__main__":
     parser.add_argument('--mixture_ratio_test', type=float, default=0.9, help='Mixture ratio of corruption for test set.')
     parser.add_argument('--val_set_size', type=int, default=10000, help='Validation set size.')
     parser.add_argument('--alpha', type=float, default=0.1, help='Pre-specified miscoverage rate.')
+    parser.add_argument('--sr_threshold', type=float, default=1e20, help='Threshold for shiryaev roberts procedure.')
+    parser.add_argument('--mt_threshold', type=float, default=1e20, help='Martingale threshold.')
 
     ## PodRam baseline params:
     parser.add_argument('--run_PR_ST', dest='run_PR_ST', action='store_true', help="Whether to run PodkopaevRamdas sequential testing (their algorithm 1) baseline.")
@@ -436,10 +541,34 @@ if __name__ == "__main__":
     val_set_size = args.val_set_size
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    run_PR_ST = args.run_PR_ST
+    run_PR_CD = args.run_PR_CD
+    ## PodRam params for both ST and CD baselines
+    pr_source_conc_type=args.pr_source_conc_type
+    pr_target_conc_type=args.pr_target_conc_type
+    
+    ## PodRam ST baseline params
+    pr_st_eps_tol=args.pr_st_eps_tol
+    pr_st_source_delta=args.pr_st_source_delta
+    pr_st_target_delta=args.pr_st_target_delta
+    pr_st_stop_criterion=args.pr_st_stop_criterion
+    
+    ## PodRam CD baseline params
+    pr_cd_eps_tol=args.pr_cd_eps_tol
+    pr_cd_source_delta=args.pr_cd_source_delta
+    pr_cd_target_delta=args.pr_cd_target_delta
+    pr_cd_stop_criterion=args.pr_cd_stop_criterion
+
     paths_dict_all = {}
+    PR_ST_paths_dict_all = {}
+    PR_CD_paths_dict_all = {}
     for method in args.methods:
         paths_dict_all[method] = pd.DataFrame()
 
+        if run_PR_ST:
+            PR_ST_paths_dict_all['PR_ST_cp_'+method] = pd.DataFrame()
+        if run_PR_CD:
+            PR_CD_paths_dict_all['PR_CD_cp_'+method] = pd.DataFrame()
 
     methods_all = "_".join(args.methods)
     setting = '{}-{}-{}-{}-nseeds{}-epochs{}-lr{}-bs{}-severity{}-methods{}-mix_val{}-mix_test{}-val_set{}'.format(
@@ -458,6 +587,25 @@ if __name__ == "__main__":
         args.val_set_size
     )
 
+    if run_PR_ST:
+        PR_ST_setting = 'sConc{}-tConc{}-eTol{}-sDelta{}-tDelta{}-stop{}'.format(
+            pr_source_conc_type,
+            pr_target_conc_type,
+            pr_st_eps_tol, 
+            pr_st_source_delta, 
+            pr_st_target_delta,
+            pr_st_stop_criterion
+        )
+    if run_PR_CD:
+        PR_CD_setting = 'sConc{}-tConc{}-eTol{}-sDelta{}-tDelta{}-stop{}'.format(
+            pr_source_conc_type, 
+            pr_target_conc_type,
+            pr_cd_eps_tol, 
+            pr_cd_source_delta, 
+            pr_cd_target_delta,
+            pr_cd_stop_criterion
+        )
+
     print(f"Running experiments for {args.n_seeds} random seeds.")
     print(f"Training dataset: {args.dataset0}")
     print(f"Test dataset: {args.dataset1}")
@@ -472,7 +620,7 @@ if __name__ == "__main__":
             loader_1 = get_cifar10_c_data(args)
         if args.train_val_test_split_only:
             train_loader_0, val_loader_0, test_loader_0 = loaders
-            paths_dict_curr = training_function(
+            paths_dict_curr, PR_ST_paths_dict_curr, PR_CD_paths_dict_curr = training_function(
                 args=args,
                 train_loader_0=train_loader_0, 
                 val_loader_0=val_loader_0,
@@ -484,7 +632,7 @@ if __name__ == "__main__":
         else:
             train_loader_0, cal_test_w_est_loader_0, test_loader_0 = loaders
             cal_test_w_est_loader_1, test_loader_mixed = loader_1
-            paths_dict_curr = training_function(
+            paths_dict_curr, PR_ST_paths_dict_curr, PR_CD_paths_dict_curr = training_function(
                 args=args,
                 train_loader_0=train_loader_0, 
                 test_loader_0=test_loader_0, 
@@ -497,45 +645,102 @@ if __name__ == "__main__":
 
         for method in methods:
             paths_dict_all[method] = pd.concat([paths_dict_all[method], paths_dict_curr[method]], ignore_index=True)
+
+            if run_PR_ST:
+                PR_ST_paths_dict_all['PR_ST_cp_'+method] = pd.concat([PR_ST_paths_dict_all['PR_ST_cp_'+method], \
+                                                                      PR_ST_paths_dict_curr['PR_ST_cp_'+method]],\
+                                                                     ignore_index=True)
+            if run_PR_CD:
+                PR_CD_paths_dict_all['PR_CD_cp_'+method] = pd.concat([PR_CD_paths_dict_all['PR_CD_cp_'+method], \
+                                                                      PR_CD_paths_dict_curr['PR_CD_cp_'+method]],\
+                                                                     ignore_index=True)
+
+    ## Save all results together
+    results_all = paths_dict_all[methods[0]]
+    results_all['method'] = methods[0]
     
+    if run_PR_ST:
+        PR_ST_results_all = PR_ST_paths_dict_all['PR_ST_cp_'+methods[0]]
+        PR_ST_results_all['method'] = 'PR_ST_cp_'+methods[0]
+    if run_PR_CD:
+        PR_CD_results_all = PR_CD_paths_dict_all['PR_CD_cp_'+methods[0]]
+        PR_CD_results_all['method'] = 'PR_CD_cp_'+methods[0]
+    
+    for method in methods[1:]:
+        paths_dict_all[method]['method'] = method
+        results_all = pd.concat([results_all, paths_dict_all[method]], ignore_index=True)
+        
+        if run_PR_ST:
+            PR_ST_paths_dict_all['PR_ST_cp_'+method]['method'] = 'PR_ST_cp_'+method
+            PR_ST_results_all = pd.concat([PR_ST_results_all, PR_ST_paths_dict_all['PR_ST_cp_'+method]], ignore_index=True)
+        if run_PR_CD:
+            PR_CD_paths_dict_all['PR_CD_cp_'+method]['method'] = 'PR_CD_cp_'+method
+            PR_CD_results_all = pd.concat([PR_CD_results_all, PR_CD_paths_dict_all['PR_CD_cp_'+method]], ignore_index=True)
+        
+    results_all.to_csv(f'../results/{setting}.csv')
+    
+    if run_PR_ST:
+        PR_ST_results_all.to_csv(f'../results/{setting}_PR_ST-{PR_ST_setting}.csv')
+    if run_PR_CD:
+        PR_CD_results_all.to_csv(f'../results/{setting}_PR_CD-{PR_CD_setting}.csv')
+
     sigmas_0_means_dict, sigmas_1_means_dict = {}, {}
     sigmas_0_stderr_dict, sigmas_1_stderr_dict = {}, {}
+    martingales_0_means_dict, martingales_1_means_dict = {}, {}
+    martingales_0_stderr_dict, martingales_1_stderr_dict = {}, {}
     errors_0_means_dict, errors_1_means_dict = {}, {}
     errors_0_stderr_dict, errors_1_stderr_dict = {}, {}
     coverage_0_means_dict = {}
     coverage_0_stderr_dict = {}
+    widths_0_medians_dict = {}
+    widths_0_lower_q_dict = {}
+    widths_0_upper_q_dict = {}
     pvals_0_means_dict = {}
     pvals_0_stderr_dict = {}
-    p_vals_cal_dict = {}
-    p_vals_test_dict = {}
-
-    changepoint_index = val_set_size
+    p_vals_pre_change_dict = {}
+    p_vals_post_change_dict = {}
+    changepoint_index = args.val_set_size
 
     for method in methods:
         paths_dict_all[method].to_csv(f'../results/' + setting + '.csv')
-    
+        
         ## Compute average and stderr values for plotting
         paths_all = paths_dict_all[method]
         num_obs = paths_all['obs_idx'].max() + 1
 
         sigmas_0_means, sigmas_1_means = [], []
         sigmas_0_stderr, sigmas_1_stderr = [], []
+        martingales_0_means, martingales_1_means = [], []
+        martingales_0_stderr, martingales_1_stderr = [], []
         errors_0_means, errors_1_means = [], []
         errors_0_stderr, errors_1_stderr = [], []
         coverage_0_means = []
         coverage_0_stderr = []
+        widths_0_medians = []
+        widths_0_lower_q = []
+        widths_0_upper_q = []
         pvals_0_means = []
         pvals_0_stderr = []
 
         ## Compute average martingale values over trials
         sigmas_0_means.append(paths_all[['sigmas_0_0', 'obs_idx']].groupby('obs_idx').mean())
+        sigmas_0_stderr.append(paths_all[['sigmas_0_0', 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
         sigmas_1_means.append(paths_all[['sigmas_1_0', 'obs_idx']].groupby('obs_idx').mean())
+        sigmas_1_stderr.append(paths_all[['sigmas_1_0', 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
+
+        martingales_0_means.append(paths_all[['martingales_0_0', 'obs_idx']].groupby('obs_idx').mean())
+        martingales_0_stderr.append(paths_all[['martingales_0_0', 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
+        martingales_1_means.append(paths_all[['martingales_1_0', 'obs_idx']].groupby('obs_idx').mean())
+        martingales_1_stderr.append(paths_all[['martingales_1_0', 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
 
         ## Compute average and stderr absolute score (residual) values over window, trials
         errors_0_means_fold = []
         errors_0_stderr_fold = []
         coverage_0_means_fold = []
         coverage_0_stderr_fold = []
+        widths_0_medians_fold = []
+        widths_0_lower_q_fold = []
+        widths_0_upper_q_fold = []
         pvals_0_means_fold = []
         pvals_0_stderr_fold = []
 
@@ -550,6 +755,12 @@ if __name__ == "__main__":
             ## Coverages for window
             coverage_0_means_fold.append(paths_all_sub['coverage_0_0'].mean())
             coverage_0_stderr_fold.append(paths_all_sub['coverage_0_0'].std() / np.sqrt(n_seeds*errs_window))
+            
+            ## Widths for window
+            wid_med = paths_all_sub['widths_0_0'].median()
+            widths_0_medians_fold.append(wid_med)
+            widths_0_lower_q_fold.append(paths_all_sub['widths_0_0'].quantile(0.25))
+            widths_0_upper_q_fold.append(paths_all_sub['widths_0_0'].quantile(0.75))
 
             ## P values for window
             pvals_0_means_fold.append(paths_all_sub['pvals_0_0'].mean())
@@ -562,56 +773,111 @@ if __name__ == "__main__":
         ## Average coverages for fold
         coverage_0_means.append(coverage_0_means_fold)
         coverage_0_stderr.append(coverage_0_stderr_fold)
+        
+        ## Median widths for fold
+        widths_0_medians.append(widths_0_medians_fold)
+        widths_0_lower_q.append(widths_0_lower_q_fold)
+        widths_0_upper_q.append(widths_0_upper_q_fold)
 
         ## Average pvals for fold
         pvals_0_means.append(pvals_0_means_fold)
-        pvals_0_stderr.append(pvals_0_stderr_fold)     
+        pvals_0_stderr.append(pvals_0_stderr_fold)  
 
         sigmas_0_means_dict[method], sigmas_1_means_dict[method] = sigmas_0_means, sigmas_1_means
         sigmas_0_stderr_dict[method], sigmas_1_stderr_dict[method] = sigmas_0_stderr, sigmas_1_stderr
+        martingales_0_means_dict[method], martingales_1_means_dict[method] = martingales_0_means, martingales_1_means
+        martingales_0_stderr_dict[method], martingales_1_stderr_dict[method] = martingales_0_stderr, martingales_1_stderr
         errors_0_means_dict[method], errors_1_means_dict[method] = errors_0_means, errors_1_means
         errors_0_stderr_dict[method], errors_1_stderr_dict[method] = errors_0_stderr, errors_1_stderr
         coverage_0_means_dict[method] = coverage_0_means
         coverage_0_stderr_dict[method] = coverage_0_stderr
         pvals_0_means_dict[method] = pvals_0_means
         pvals_0_stderr_dict[method] = pvals_0_stderr
-        
-        ## Plotting p-values for debugging
-        paths_cal = paths_all[paths_all['obs_idx'] < changepoint_index]
-        paths_test = paths_all[paths_all['obs_idx'] >= changepoint_index]
-        p_vals_cal = np.array(paths_cal['pvals_0_0'])
-        p_vals_test = np.array(paths_test['pvals_0_0'])
-        p_vals_cal_dict[method] = p_vals_cal
-        p_vals_test_dict[method] = p_vals_test
-    pdb.set_trace()
+        widths_0_medians_dict[method] = widths_0_medians
+        widths_0_lower_q_dict[method] = widths_0_lower_q
+        widths_0_upper_q_dict[method] = widths_0_upper_q
+
+        ## Saving p-values together for histograms
+        paths_pre_change = paths_all[paths_all['obs_idx'] < changepoint_index]
+        paths_post_change = paths_all[paths_all['obs_idx'] >= changepoint_index]
+        p_vals_pre_change = paths_pre_change['pvals_0_0']
+        p_vals_post_change = paths_post_change['pvals_0_0']
+        p_vals_pre_change = np.concatenate((p_vals_pre_change, paths_pre_change['pvals_0_0']))
+        p_vals_post_change = np.concatenate((p_vals_post_change, paths_post_change['pvals_0_0']))
+        p_vals_pre_change_dict[method] = p_vals_pre_change
+        p_vals_post_change_dict[method] = p_vals_post_change
+
     plot_martingale_paths(
         dataset0_paths_dict=sigmas_0_means_dict,
+        dataset0_paths_stderr_dict=sigmas_0_stderr_dict,
+        martingales_0_dict=martingales_0_means_dict,
+        martingales_0_stderr_dict=martingales_0_stderr_dict,
+        dataset1_paths_dict=sigmas_1_means_dict,
+        dataset1_paths_stderr_dict=sigmas_1_stderr_dict,
+        change_point_index=changepoint_index,
+        martingales_1_dict=martingales_1_means_dict,
+        martingales_1_stderr_dict=martingales_1_stderr_dict,
         dataset0_name=dataset0_name,
-        dataset1_paths_dict=sigmas_1_means_dict, 
-        dataset1_name=dataset1_name,
-        errors_0_means_dict=errors_0_means_dict,
-        errors_1_means_dict=errors_1_means_dict,
-        errors_0_stderr_dict=errors_0_stderr_dict,
-        errors_1_stderr_dict=errors_1_stderr_dict,
-        # p_vals_cal_dict=p_vals_cal_dict,
-        # p_vals_test_dict=p_vals_test_dict,
-        errs_window=errs_window,
-        # change_point_index=changepoint_index,
-        title="Average paths of Shiryaev-Roberts Procedure",
-        ylabel="Shiryaev-Roberts Statistics",
-        martingale="shiryaev_roberts",
         dataset0_shift_type=corruption_type,
-        noise_mu=None,
-        noise_sigma=None,
-        plot_errors=plot_errors,
+        martingale=["Shiryaev-Roberts", "martingale"],
         n_seeds=n_seeds,
         cs_type=cs_type,
         setting=setting,
-        coverage_0_means_dict=coverage_0_means_dict,
-        coverage_0_stderr_dict=coverage_0_stderr_dict,
-        pvals_0_means_dict=pvals_0_means_dict,
-        pvals_0_stderr_dict=pvals_0_stderr_dict,
         methods=methods,
         severity=severity
     )
+    # plot_errors(
+    #     errors_0_means_dict=errors_0_means_dict,
+    #     errors_0_stderr_dict=errors_0_stderr_dict,
+    #     errs_window=errs_window,
+    #     change_point_index=changepoint_index,
+    #     dataset0_name=dataset0_name,
+    #     dataset0_shift_type=corruption_type,
+    #     n_seeds=n_seeds,
+    #     cs_type=cs_type,
+    #     setting=setting,
+    #     methods=methods,
+    #     severity=severity
+    # )
+    # plot_coverage(
+    #     coverage_0_means_dict=coverage_0_means_dict,
+    #     coverage_0_stderr_dict=coverage_0_stderr_dict,
+    #     errs_window=errs_window,
+    #     change_point_index=changepoint_index,
+    #     dataset0_name=dataset0_name,
+    #     dataset0_shift_type=corruption_type,
+    #     n_seeds=n_seeds,
+    #     cs_type=cs_type,
+    #     setting=setting,
+    #     methods=methods,
+    #     severity=severity
+    # )
+    # plot_widths(
+    #     widths_0_medians_dict=widths_0_medians_dict,
+    #     widths_0_lower_q_dict=widths_0_lower_q_dict,
+    #     widths_0_upper_q_dict=widths_0_upper_q_dict,
+    #     errs_window=errs_window,
+    #     change_point_index=changepoint_index,
+    #     dataset0_name=dataset0_name,
+    #     dataset0_shift_type=corruption_type,
+    #     n_seeds=n_seeds,
+    #     cs_type=cs_type,
+    #     setting=setting,
+    #     methods=methods,
+    #     severity=severity
+    # )
+    # plot_p_vals(
+    #     pvals_0_means_dict=pvals_0_means_dict,
+    #     pvals_0_stderr_dict=pvals_0_stderr_dict,
+    #     errs_window=errs_window,
+    #     change_point_index=changepoint_index,
+    #     dataset0_name=dataset0_name,
+    #     dataset0_shift_type=corruption_type,
+    #     n_seeds=n_seeds,
+    #     cs_type=cs_type,
+    #     setting=setting,
+    #     methods=methods,
+    #     severity=severity
+    # )
+    
     print('\nProgram done!')

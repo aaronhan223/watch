@@ -56,7 +56,7 @@ def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betti
     T = len(test_losses)
     target_lower_bounds = [] # np.zeros(T)
     
-    for t in range(T):
+    for t in tqdm(range(T)):
         tester.estimate_risk_target(test_losses[:(t+1)])
         target_lower_bounds.append(tester.target_risk_lower_bound)
         
@@ -125,7 +125,7 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
     
     ## Runs algorithm1 of that paper at each test timepoint and return the earliest stopping time.
     alarm_min = T+1
-    for t in range(int(T/batch_size)):
+    for t in tqdm(range(int(T/batch_size))):
         ## Initiate new sequential testing object
         ## Set up Drop_tester for computer UCB on source risk and LCB on target risk
         testers_all.append(Drop_tester())

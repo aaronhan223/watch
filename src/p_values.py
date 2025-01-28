@@ -26,7 +26,7 @@ def random_forest_weight_est(X, class_labels, ntree=100):
 
 
 def offline_lik_ratio_estimates_images(cal_test_w_est_loader, test_loader, dataset0_name = 'mnist', \
-                                       classifier='MLP', device=None, setting='', epochs=10, lr=1e-3):
+                                       classifier='MLP', device=None, setting='', epochs=60, lr=1e-3):
 
      # Train smaller MLP model to estimate source/target probabilities
     if dataset0_name == 'mnist':

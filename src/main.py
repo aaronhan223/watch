@@ -413,14 +413,10 @@ def training_function(dataset0, dataset0_name, dataset1=None, training_schedule=
                     
                 PR_ST_source_UCB_tols_0_dict['PR_ST_cp_'+method].append(PR_ST_source_UCB_tol)
                 PR_ST_target_LCBs_0_dict['PR_ST_cp_'+method].append(PR_ST_target_LCBs)
-                
-                
-                print("Running PodRam changepoint detection algo")
-                start_time = time.time()
             
             if run_PR_CD:
-                
-                
+                print("Running PodRam changepoint detection algo")
+                start_time = time.time()
                 PR_CD_alarm_test_idx, PR_CD_source_UCB_tol, PR_CD_target_LCBs = podkopaev_ramdas_changepoint_detection(\
                                                                                       miscoverage_losses[:n_cals[i]], \
                                                                                       miscoverage_losses[n_cals[i]:], \
@@ -864,7 +860,7 @@ if __name__ == "__main__":
             ## Compute average martingale values over trials
             sigmas_0_means.append(paths_all[['sigmas_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
             sigmas_0_stderr.append(paths_all[['sigmas_0_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
-            
+            pdb.set_trace()
             martingales_0_means.append(paths_all[['martingales_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
             martingales_0_stderr.append(paths_all[['martingales_0_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
 
