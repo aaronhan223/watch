@@ -134,6 +134,7 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
     alarm_min = T+1
 #     for t in range(int(T/batch_size)):
 #         print(t)
+
     for t in tqdm(range(int(T/batch_size))):
         ## Initiate new sequential testing object
         ## Set up Drop_tester for computer UCB on source risk and LCB on target risk

@@ -67,6 +67,13 @@ def shiryaev_roberts_procedure(S, c=10**4, verbose=False, return_alarm=False):
                 print(f"Alarm raised at observation {n} with sigma={sigma[n - 1]}")
                 return True, sigma
         return False, sigma
+#     sigma = []
+#     for n in range(1, len(S)):
+#         sigma.append(sum(S[n] / S[i] for i in range(n)))
+#         if sigma[n - 1] >= c and verbose:
+#             print(f"Alarm raised at observation {n} with sigma={sigma[n - 1]}")
+#             return True, sigma
+#     return False, sigma
 
 ## 20241203: Changed J from 0.01 to 0.05
 def simple_jumper_martingale(p_values, J=0.01, threshold=100, verbose=False):
@@ -98,6 +105,7 @@ def simple_jumper_martingale(p_values, J=0.01, threshold=100, verbose=False):
 
 def composite_jumper_martingale(p_values, threshold=100, verbose=False, return_alarm=False):
 # def composite_jumper_martingale(p_values, threshold=1e20, verbose=False):
+
     """
     Implements the Simple Jumper martingale betting strategy.
     """

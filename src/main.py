@@ -1000,6 +1000,7 @@ if __name__ == "__main__":
             cusum_0_stderr.append(paths_all[['cusum_0_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
 
 #             pdb.set_trace()
+            pdb.set_trace()
             martingales_0_means.append(paths_all[['martingales_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
             martingales_0_stderr.append(paths_all[['martingales_0_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
 
