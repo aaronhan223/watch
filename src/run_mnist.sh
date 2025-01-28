@@ -5,7 +5,7 @@ do
     python -W ignore main_mnist_cifar.py \
         --dataset0 mnist \
         --dataset1 mnist_c \
-        --n_seeds 2 \
+        --n_seeds 3 \
         --cs_type probability \
         --methods baseline \
         --schedule variable \
@@ -20,7 +20,7 @@ do
         --mixture_ratio_test 0.1 \
         --val_set_size 100 \
         --errs_window 1 \
-        --sr_threshold 1e30 \
-        --mt_threshold 1e30 \
+        --sr_threshold 1e8 \
+        --mt_threshold 1e8 \
         --verbose 
 done

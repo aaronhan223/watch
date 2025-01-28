@@ -41,7 +41,6 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
         for m_i, method in enumerate(methods):
             
             if severity is not None:
-                pdb.set_trace()
                 plt.plot(paths_0_dicts_all[0][method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i}')
                 plt.plot(dataset1_paths_dict[method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i+1}')
 
