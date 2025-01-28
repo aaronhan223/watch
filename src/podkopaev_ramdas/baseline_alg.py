@@ -6,6 +6,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import pdb
 
+import time
 
 
 
@@ -34,8 +35,11 @@ def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betti
     target_lower_bounds : Array, estimates of LCB on target risk at each timestep \hat{L}_T^{t}(f)
     """
     
+    start_time = time.time()
+    
     ## Index in test set of first alarm
     alarm_idx = None
+    elapsed_time_min = None
     
     ## Set up Drop_tester for computer UCB on source risk and LCB on target risk
     tester = Drop_tester()
@@ -65,18 +69,19 @@ def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betti
     
         if (target_lower_bounds[t] > source_upper_bound_plus_tol and alarm_idx is None):
             alarm_idx = t
+            elapsed_time_min = (time.time() - start_time) / 60
                         
             if (verbose):
                 print(f'podkopaev_ramdas_algorithm1 alarm raised at test point {t}!\n')
                 
             if (stop_criterion == 'first_alarm'):
-                return alarm_idx, source_upper_bound_plus_tol, target_lower_bounds
+                return alarm_idx, source_upper_bound_plus_tol, target_lower_bounds, elapsed_time_min
             
         if (stop_criterion == 'fixed_length' and t > max_length):
-            return alarm_idx, source_upper_bound_plus_tol, target_lower_bounds
-                
+            return alarm_idx, source_upper_bound_plus_tol, target_lower_bounds, elapsed_time_min
+           
     
-    return alarm_idx, source_upper_bound_plus_tol, np.array(target_lower_bounds)
+    return alarm_idx, source_upper_bound_plus_tol, np.array(target_lower_bounds), elapsed_time_min
 
 
 
@@ -84,7 +89,7 @@ def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betti
 
 def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_type='betting', target_conc_type='betting', \
                                 verbose=False, eps_tol=0.0, source_delta=0.000005, target_delta = 0.000005,\
-                                stop_criterion='first_alarm', max_length=2500, batch_size=50):
+                                stop_criterion='first_alarm', max_length=500, batch_size=50):
     """
     Implementation of Podkopaev & Ramdas *changepoint detection* baseline,
     i.e., see "From sequential testing to changepoint detection" in that paper.
@@ -112,12 +117,14 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
     source_UCB_tol   : Estimate of UCB on source risk plus tolerance: \hat{U}_S(f) + \epsilon
     target_max_LCBs  : Array, estimates of LCB on target risk at each timestep \hat{L}_T^{t}(f)
     """
+    start_time = time.time()
     
     T = len(test_losses) ## num_test
     testers_all = []
     ## For each separate t-th run of algorithm 1, record the following:
 #     alarm_times = [] ## Alarm times for t-th run
     alarm_idx = None
+    elapsed_time_min = None
     source_UCB_tol = None ## Source UCB+tolerance for t-th run
     target_LCBs_all = [] ## Array of LCBs for t-th run 
                      ## Note: target_LCBs[t] will be an array for timesteps t:(T-1) (of length T-t) 
@@ -125,6 +132,9 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
     
     ## Runs algorithm1 of that paper at each test timepoint and return the earliest stopping time.
     alarm_min = T+1
+#     for t in range(int(T/batch_size)):
+#         print(t)
+
     for t in tqdm(range(int(T/batch_size))):
         ## Initiate new sequential testing object
         ## Set up Drop_tester for computer UCB on source risk and LCB on target risk
@@ -160,6 +170,8 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
             ## Check alarm threshold
             if (testers_all[i].target_risk_lower_bound > source_UCB_tol and alarm_idx is None):
                 alarm_idx = (t+1)*batch_size-1
+                elapsed_time_min = (time.time() - start_time) / 60
+
         
         ## Record max target LCB for time t
         target_LCBs_0_t = target_LCBs_all[:(t+1)] ## list of target_LCBs arrays for times 0, ..., t
@@ -177,7 +189,7 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
             break
             
     
-    return alarm_idx, source_UCB_tol, np.array(target_max_LCBs)
+    return alarm_idx, source_UCB_tol, np.array(target_max_LCBs), elapsed_time_min
 
 
 

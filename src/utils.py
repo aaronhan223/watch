@@ -16,15 +16,17 @@ import pdb
 from ucimlrepo import fetch_ucirepo 
 
 
-def get_bike_sharing_data():
+def get_bike_sharing_data(n_sample=None):
     # fetch dataset 
     bike_sharing_obj = fetch_ucirepo(id=275) 
     
     bike_sharing = bike_sharing_obj.data.features.iloc[:,1:]
     bike_sharing['count'] = bike_sharing_obj.data.targets
+    if n_sample is not None:
+        bike_sharing = bike_sharing.sample(n=n_sample, random_state=0)
     return bike_sharing
 
-def get_meps_data():
+def get_meps_data(n_sample=None):
     meps_data = pd.read_csv('../datasets/meps/meps_data.txt', sep=" ", header=None)
     meps_data.columns = \
     ['AGE53X','EDUCYR','HIDEG','FAMINC16','RTHLTH53','MNHLTH53','NOINSTM','REGION53_-1','REGION53_1','REGION53_2','REGION53_3',\
@@ -39,7 +41,8 @@ def get_meps_data():
      'OCCCT53H_4','OCCCT53H_5','OCCCT53H_6','OCCCT53H_7','OCCCT53H_8','OCCCT53H_9','OCCCT53H_11','INDCT53H_-1','INDCT53H_1',\
      'INDCT53H_2','INDCT53H_3','INDCT53H_4','INDCT53H_5','INDCT53H_6','INDCT53H_7','INDCT53H_8','INDCT53H_9','INDCT53H_10',\
      'INDCT53H_11','INDCT53H_12','INDCT53H_13','INDCT53H_14','INDCT53H_15','UTILIZATION']
-#     meps_data = meps_data.sample(n=10000, random_state=0)
+    if n_sample is not None:
+        meps_data = meps_data.sample(n=n_sample, random_state=0)
     return meps_data
 
 def get_white_wine_data():
@@ -77,9 +80,10 @@ def get_communities_data():
     print("\nShape of the communities_data after preprocessing:", communities_data.shape)
     return communities_data
 
-def get_superconduct_data():
+def get_superconduct_data(n_sample=None):
     superconduct_data = pd.read_csv(os.getcwd() + '/../datasets/superconduct/train.csv')
-#     superconduct_data = superconduct_data.sample(n=10000, random_state=0)
+    if n_sample is not None:
+        superconduct_data = superconduct_data.sample(n=n_sample, random_state=0)
     return superconduct_data
 
 def get_wave_data():
