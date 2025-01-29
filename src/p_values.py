@@ -25,8 +25,8 @@ def random_forest_weight_est(X, class_labels, ntree=100):
     return rf_probs[:,1] / rf_probs[:,0]
 
 
-def offline_lik_ratio_estimates_images(cal_test_w_est_loader, test_loader, dataset0_name = 'mnist', \
-                                       classifier='MLP', device=None, setting='', epochs=60, lr=1e-3):
+def offline_lik_ratio_estimates_images(cal_test_w_est_loader, test_loader, dataset0_name = 'mnist', device=None, 
+                                       setting='', epochs=80, lr=1e-3, epsilon=1e-9, classifier='MLP'):
 
      # Train smaller MLP model to estimate source/target probabilities
     if dataset0_name == 'mnist':
@@ -38,9 +38,9 @@ def offline_lik_ratio_estimates_images(cal_test_w_est_loader, test_loader, datas
     ## Fit prob classifier offline
     fit(model, epochs, cal_test_w_est_loader, optimizer, setting, device)
     ## Evaluate probability estimiates
-    cal_test_prob_est, _ = eval_loss_prob(model, device, setting, cal_test_w_est_loader, test_loader, binary_classifier_probs = True)
+    cal_test_prob_est, _ = eval_loss_prob(model, device, setting, cal_test_w_est_loader, test_loader, binary_classifier_probs=True)
 
-    return cal_test_prob_est / (1 - cal_test_prob_est)
+    return cal_test_prob_est / (1 - cal_test_prob_est + epsilon)
 
 
 def online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, adapt_start=None, classifier='LR'):
@@ -387,7 +387,7 @@ def calculate_weighted_p_values_and_quantiles(args, conformity_scores, W_i, adap
                             np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
             else:
                 ## Else: over (relative) weight 'alpha' put on test pt score, compute conservative (and deterministic) p-values:
-                print("Using conservative p-values : ", t_)
+                # print("Using conservative p-values : ", t_)
                 wp_values[adapt_start+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]])
 
     elif (method in ['one_step_oracle', 'one_step_est', 'batch_oracle', 'multistep_oracle']):

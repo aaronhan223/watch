@@ -13,6 +13,7 @@ import argparse
 import random
 from podkopaev_ramdas.baseline_alg import podkopaev_ramdas_algorithm1, podkopaev_ramdas_changepoint_detection
 import time
+from datetime import date
 
 
 def set_seed(seed: int):
@@ -104,7 +105,7 @@ def evaluate(model, device, data_loader):
     return epoch_loss, epoch_acc
 
 
-def eval_loss_prob(model, device, setting, loader_0, loader_1, binary_classifier_probs = False):
+def eval_loss_prob(model, device, setting, loader_0, loader_1, binary_classifier_probs=False):
     model.load_state_dict(torch.load(os.getcwd() + '/../pkl_files/best_model_' + setting + '.pth'))
     model.eval()
     all_preds = []
@@ -112,6 +113,8 @@ def eval_loss_prob(model, device, setting, loader_0, loader_1, binary_classifier
 
     with torch.no_grad():
         # Evaluate on validation loader
+        correct = 0
+        total = 0
         for images, labels in loader_0:
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
@@ -130,7 +133,13 @@ def eval_loss_prob(model, device, setting, loader_0, loader_1, binary_classifier
                 # Calculate cross entropy loss for each sample
                 loss = F.cross_entropy(outputs, labels, reduction='none')
                 all_losses.append(loss.cpu().numpy())
-
+            _, predicted = outputs.max(dim=1)
+            correct += predicted.eq(labels).sum().item()
+            total += labels.size(0)
+        
+        accuracy = correct / total
+        print(f'Accuracy on cal loader: {accuracy * 100:.2f}%')
+        
         # Evaluate on test loader
         for images, labels in loader_1:
             images, labels = images.to(device), labels.to(device).long()
@@ -149,10 +158,16 @@ def eval_loss_prob(model, device, setting, loader_0, loader_1, binary_classifier
                 # Calculate cross entropy loss for each sample
                 loss = F.cross_entropy(outputs, labels, reduction='none')
                 all_losses.append(loss.cpu().numpy())
+
+            _, predicted = outputs.max(dim=1)
+            correct += predicted.eq(labels).sum().item()
+            total += labels.size(0)
+        
+        accuracy = correct / total
+        print(f'Accuracy on test loader: {accuracy * 100:.2f}%')
         if not binary_classifier_probs:
             all_losses = np.concatenate(all_losses)
     return np.array(all_preds), all_losses
-
 
 
 def fit(model, epochs, train_loader, optimizer, setting, device):
@@ -178,8 +193,10 @@ def fit(model, epochs, train_loader, optimizer, setting, device):
 
 
 
-def train_and_evaluate(args, train_loader_0, test_loader_0, device, setting, loader_1=None, val_loader_0=None,
-                       cal_test_w_est_loader_0=None, cal_test_w_est_loader_1=None, test_loader_mixed=None, epsilon=1e-9):
+def train_and_evaluate(args, train_loader_0, test_loader_0, test_loader_s, device, setting, loader_1=None, val_loader_0=None,
+                       cal_test_w_est_loader_0=None, cal_test_w_est_loader_1=None, test_loader_mixed=None, epsilon=1e-9,
+                       cal_test_w_est_loader_binary_0=None, cal_test_w_est_loader_binary_1=None, test_loader_mixed_binary=None,
+                       test_loader_s_binary=None):
     '''
     baseline uniform weights:
     - train on clean data, eval on clean data: train_loader_0 + val_loader_0 + test_loader_0
@@ -188,8 +205,8 @@ def train_and_evaluate(args, train_loader_0, test_loader_0, device, setting, loa
     - train on clean data, eval on clean data: train_loader_0 + val_loader_0 + test_loader_0
     - train on clean data, eval on corrupted data: train_loader_0 + val_loader_mixed + test_loader_mixed
     '''
-    cs_0 = []
-    cs_1 = []
+    cs_0 = {}
+    cs_1 = {}
     W_0_dict = {}
     W_1_dict = {}
 
@@ -200,23 +217,22 @@ def train_and_evaluate(args, train_loader_0, test_loader_0, device, setting, loa
         model = MLP(input_size=3*32*32, hidden_size=1024, num_classes=10).to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     fit(model, args.epochs, train_loader_0, optimizer, setting, device)
-    
-    if loader_1 is not None:
-        # CTMs
-        clean_pred, clean_loss = eval_loss_prob(model, device, setting, val_loader_0, test_loader_0)
-        corrupt_pred, corrupt_loss = eval_loss_prob(model, device, setting, val_loader_0, loader_1)
-    else:
-        # WCTMs
-        clean_pred, clean_loss = eval_loss_prob(model, device, setting, cal_test_w_est_loader_0, test_loader_0)
-        corrupt_pred, corrupt_loss = eval_loss_prob(model, device, setting, cal_test_w_est_loader_1, test_loader_mixed)
 
-    ### val + test conformity scores: cs_0 is clean val + test, cs_1 is corrupted val + test
-    if cs_type == 'probability':
-        cs_0 = 1 - clean_pred
-        cs_1 = 1 - corrupt_pred
-    elif cs_type == 'neg_log':
-        cs_0 = -np.log(clean_pred + epsilon)
-        cs_1 = -np.log(corrupt_pred + epsilon)
+    for method in args.methods:
+        if method == 'fixed_cal_offline':
+            clean_pred, clean_loss = eval_loss_prob(model, device, setting, cal_test_w_est_loader_0, test_loader_s)
+            corrupt_pred, corrupt_loss = eval_loss_prob(model, device, setting, cal_test_w_est_loader_1, test_loader_mixed)
+            
+        else:
+            clean_pred, clean_loss = eval_loss_prob(model, device, setting, val_loader_0, test_loader_0)
+            corrupt_pred, corrupt_loss = eval_loss_prob(model, device, setting, val_loader_0, loader_1)
+
+        if cs_type == 'probability':
+            cs_0[method] = 1 - clean_pred
+            cs_1[method] = 1 - corrupt_pred
+        elif cs_type == 'neg_log':
+            cs_0[method] = -np.log(clean_pred + epsilon)
+            cs_1[method] = -np.log(corrupt_pred + epsilon)
     
     #### Computing (unnormalized) weights
     ### NOTE: 'fixed_cal_offline' is the primary method implemented for now.
@@ -224,8 +240,8 @@ def train_and_evaluate(args, train_loader_0, test_loader_0, device, setting, loa
 
         if (method in ['fixed_cal_offline']):
             ###
-            W_0_dict[method] = offline_lik_ratio_estimates_images(cal_test_w_est_loader_0, test_loader_0, args.dataset0, device=device, setting=setting)
-            W_1_dict[method] = offline_lik_ratio_estimates_images(cal_test_w_est_loader_1, test_loader_mixed, args.dataset0, device=device, setting=setting)
+            W_0_dict[method] = offline_lik_ratio_estimates_images(cal_test_w_est_loader_binary_0, test_loader_s_binary, args.dataset0, device=device, setting=setting, epochs=args.weight_epoch)
+            W_1_dict[method] = offline_lik_ratio_estimates_images(cal_test_w_est_loader_binary_1, test_loader_mixed_binary, args.dataset0, device=device, setting=setting, epochs=args.weight_epoch)
         else:
             ## Else: Unweighted / uniform-weighted CTM
             W_0_dict[method] = None
@@ -243,9 +259,9 @@ def retrain_count(args, conformity_score, method, cu_confidence=0.99, W=None):
         p_values, q_lower, q_upper = calculate_p_values_and_quantiles(conformity_score, args.alpha, args.cs_type)
     
     if args.init_ctm_on_cal_set:
-        retrain_m, martingale_value = composite_jumper_martingale(p_values, verbose=verbose, threshold=args.mt_threshold)
+        retrain_m, martingale_value = composite_jumper_martingale(p_values[:args.num_samples_vis+1], verbose=args.verbose, threshold=args.mt_threshold)
     else:
-        retrain_m, martingale_value = composite_jumper_martingale(p_values[args.val_set_size:], verbose=verbose, threshold=args.mt_threshold)
+        retrain_m, martingale_value = composite_jumper_martingale(p_values[args.val_set_size:], verbose=args.verbose, threshold=args.mt_threshold)
 
     if args.schedule == 'variable':
         retrain_s, sigma = shiryaev_roberts_procedure(martingale_value, args.sr_threshold, args.verbose)
@@ -256,42 +272,39 @@ def retrain_count(args, conformity_score, method, cu_confidence=0.99, W=None):
         sigma = martingale_value
     else:
         retrain_s, sigma = cusum_procedure(martingale_value, cu_confidence, args.verbose)
-    return retrain_m, retrain_s, martingale_value, sigma, p_values, q_lower, q_upper
+    return retrain_m, retrain_s, martingale_value[:-1], sigma, p_values[:args.num_samples_vis], q_lower[:args.num_samples_vis], q_upper[:args.num_samples_vis]
 
 
-def training_function(args, train_loader_0, test_loader_0, device, setting, val_loader_0=None, loader_1=None, 
-                      cal_test_w_est_loader_0=None, cal_test_w_est_loader_1=None, test_loader_mixed=None):
+def training_function(args, train_loader_0, test_loader_0, test_loader_s, device, setting, val_loader_0=None, loader_1=None, 
+                      cal_test_w_est_loader_0=None, cal_test_w_est_loader_1=None, test_loader_mixed=None,
+                      cal_test_w_est_loader_binary_0=None, cal_test_w_est_loader_binary_1=None, test_loader_mixed_binary=None,
+                      test_loader_s_binary=None):
     
-    if cal_test_w_est_loader_0 is None:
-        cs_0, cs_1, clean_loss, corrupt_loss, _, _ = train_and_evaluate(
-            args=args,
-            train_loader_0=train_loader_0,
-            val_loader_0=val_loader_0,
-            test_loader_0=test_loader_0,
-            loader_1=loader_1,
-            device=device,
-            setting=setting
-        )
-    else:
-        # should return weights here
-        cs_0, cs_1, clean_loss, corrupt_loss, W_0_dict, W_1_dict = train_and_evaluate(
-            args=args,
-            train_loader_0=train_loader_0,
-            test_loader_0=test_loader_0,
-            cal_test_w_est_loader_0=cal_test_w_est_loader_0,
-            cal_test_w_est_loader_1=cal_test_w_est_loader_1,
-            test_loader_mixed=test_loader_mixed,
-            device=device,
-            setting=setting
-        )
+    cs_0, cs_1, clean_loss, corrupt_loss, W_0_dict, W_1_dict = train_and_evaluate(
+        args=args,
+        train_loader_0=train_loader_0,
+        val_loader_0=val_loader_0,
+        test_loader_0=test_loader_0,
+        test_loader_s=test_loader_s,
+        test_loader_s_binary=test_loader_s_binary,
+        loader_1=loader_1,
+        cal_test_w_est_loader_0=cal_test_w_est_loader_0,
+        cal_test_w_est_loader_1=cal_test_w_est_loader_1,
+        cal_test_w_est_loader_binary_0=cal_test_w_est_loader_binary_0,
+        cal_test_w_est_loader_binary_1=cal_test_w_est_loader_binary_1,
+        test_loader_mixed=test_loader_mixed,
+        test_loader_mixed_binary=test_loader_mixed_binary,
+        device=device,
+        setting=setting
+    )
 
     martingales_0_dict, martingales_1_dict = {}, {}
     sigmas_0_dict, sigmas_1_dict = {}, {}
     # retrain_m_count_0_dict, retrain_s_count_0_dict = {}, {}
     # retrain_m_count_1_dict, retrain_s_count_1_dict = {}, {}
-    p_values_0_dict = {}
-    coverage_0_dict = {}
-    widths_0_dict = {}
+    p_values_0_dict, p_values_1_dict = {}, {}
+    coverage_0_dict, coverage_1_dict = {}, {}
+    widths_0_dict, widths_1_dict = {}, {}
 
     if args.run_PR_ST:
         ## Podkopaev Ramdas sequential testing method
@@ -310,9 +323,9 @@ def training_function(args, train_loader_0, test_loader_0, device, setting, val_
         sigmas_0_dict[method], sigmas_1_dict[method] = [], []
         # retrain_m_count_0_dict[method], retrain_s_count_0_dict[method] = [], []
         # retrain_m_count_1_dict[method], retrain_s_count_1_dict[method] = [], []
-        p_values_0_dict[method] = []
-        coverage_0_dict[method] = []
-        widths_0_dict[method] = []
+        p_values_0_dict[method], p_values_1_dict[method] = [], []
+        coverage_0_dict[method], coverage_1_dict[method] = [], []
+        widths_0_dict[method], widths_1_dict[method] = [], []
 
         if args.run_PR_ST:
             PR_ST_alarm_0_dict['PR_ST_cp_'+method], PR_ST_alarm_1_dict['PR_ST_cp_'+method] = [], []
@@ -326,23 +339,31 @@ def training_function(args, train_loader_0, test_loader_0, device, setting, val_
 
     for method in args.methods:
         if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline']):
-            m_0, s_0, martingale_value_0, sigma_0, p_vals, q_lower, q_upper = retrain_count(args=args, conformity_score=cs_0, W=W_0_dict[method], method=method)
+            print('Clean dataset:   ', method)
+            m_0, s_0, martingale_value_0, sigma_0, p_vals_0, q_lower_0, q_upper_0 = retrain_count(args=args, conformity_score=cs_0[method], W=W_0_dict[method], method=method)
+            print(f'Corrupted dataset {args.corruption_type} severity {args.severity}:   ', method)
+            m_1, s_1, martingale_value_1, sigma_1, p_vals_1, q_lower_1, q_upper_1 = retrain_count(args=args, conformity_score=cs_1[method], W=W_1_dict[method], method=method)
         else:
             ## Run baseline with uniform weights
-            m_0, s_0, martingale_value_0, sigma_0, p_vals, q_lower, q_upper = retrain_count(args=args, conformity_score=cs_0, method=method)
-        # if m_0:
-        #     retrain_m_count_0_dict[method] += 1
-        # if s_0:
-        #     retrain_s_count_0_dict[method] += 1
+            print('Clean dataset:   ', method)
+            m_0, s_0, martingale_value_0, sigma_0, p_vals_0, q_lower_0, q_upper_0 = retrain_count(args=args, conformity_score=cs_0[method], method=method, W=W_0_dict[method])
+            print(f'Corrupted dataset {args.corruption_type} severity {args.severity}:   ', method)
+            m_1, s_1, martingale_value_1, sigma_1, p_vals_1, q_lower_1, q_upper_1 = retrain_count(args=args, conformity_score=cs_1[method], method=method, W=W_1_dict[method])
             
         martingales_0_dict[method].append(martingale_value_0)
         sigmas_0_dict[method].append(sigma_0)
+        martingales_1_dict[method].append(martingale_value_1)
+        sigmas_1_dict[method].append(sigma_1)
 
         ## Storing p-values
-        p_values_0_dict[method].append(p_vals)
-        coverage_0_dict[method].append(p_vals <= 0.9)
-        coverage_vals = ((q_lower <= cs_0)&(q_upper >= cs_0))
-        width_vals = q_upper - q_lower
+        p_values_0_dict[method].append(p_vals_0)
+        p_values_1_dict[method].append(p_vals_1)
+        coverage_0_dict[method].append(p_vals_0 <= 1 - args.alpha)
+        coverage_1_dict[method].append(p_vals_1 <= 1 - args.alpha)
+        coverage_vals_0 = ((q_lower_0 <= cs_0[method][:args.num_samples_vis])&(q_upper_0 >= cs_0[method][:args.num_samples_vis]))
+        coverage_vals_1 = ((q_lower_1 <= cs_1[method][:args.num_samples_vis])&(q_upper_1 >= cs_1[method][:args.num_samples_vis]))
+        width_vals_0 = q_upper_0 - q_lower_0
+        width_vals_1 = q_upper_1 - q_lower_1
 
         if args.run_PR_ST:
             miscoverage_losses = 1 - coverage_vals
@@ -396,32 +417,26 @@ def training_function(args, train_loader_0, test_loader_0, device, setting, val_
             PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method].append(PR_CD_target_LCBs)
 
         if not args.init_ctm_on_cal_set:
-            p_vals = p_vals[args.val_set_size:]
+            p_vals_0 = p_vals_0[args.val_set_size:]
             coverage_vals = coverage_vals[args.val_set_size:]
             width_vals = width_vals[args.val_set_size:]
 
-        p_values_0_dict[method].append(p_vals)
-        coverage_0_dict[method].append(coverage_vals)
-        widths_0_dict[method].append(width_vals)
-        
+        p_values_0_dict[method].append(p_vals_0)
+        coverage_0_dict[method].append(coverage_vals_0)
+        widths_0_dict[method].append(width_vals_0)
+        p_values_1_dict[method].append(p_vals_1)
+        coverage_1_dict[method].append(coverage_vals_1)
+        widths_1_dict[method].append(width_vals_1)
+
     if not args.init_ctm_on_cal_set:
         cs_0 = cs_0[args.val_set_size:]
         clean_loss = clean_loss[args.val_set_size:] 
-
-    for method in args.methods:
-        m_1, s_1, martingale_value_1, sigma_1, p_vals, q_lower, q_upper = retrain_count(args=args, conformity_score=cs_1, W=W_1_dict[method], method=method)
-        # if m_1:
-        #     retrain_m_count_1_dict[method] += 1
-        # if s_1:
-        #     retrain_s_count_1_dict[method] += 1
-        martingales_1_dict[method].append(martingale_value_1)
-        sigmas_1_dict[method].append(sigma_1)
         
     ## min_len : Smallest fold length, for clipping longer ones to all same length
-    min_len_0 = np.min([len(sigmas_0_dict[method][i]) for i in range(0, len(sigmas_0_dict[method]))])
-    min_len_1 = np.min([len(sigmas_1_dict[method][i]) for i in range(0, len(sigmas_1_dict[method]))])
-    min_len = min(min_len_0, min_len_1)
+    # min_len_0 = np.min([len(sigmas_0_dict[method][i]) for i in range(0, len(sigmas_0_dict[method]))])
+    # min_len_1 = np.min([len(sigmas_1_dict[method][i]) for i in range(0, len(sigmas_1_dict[method]))])
     paths_dict = {}
+    # paths_dict_1 = {}
     PR_ST_paths_dict = {}
     PR_ST_paths=None
     
@@ -430,22 +445,24 @@ def training_function(args, train_loader_0, test_loader_0, device, setting, val_
 
     for method in methods:
     
-        paths = pd.DataFrame(np.c_[np.repeat(seed, min_len), np.arange(0, min_len)], columns = ['itrial', 'obs_idx'])
+        paths = pd.DataFrame(np.c_[np.repeat(seed, args.num_samples_vis), np.arange(0, args.num_samples_vis)], columns = ['itrial', 'obs_idx'])
+        # paths_1 = pd.DataFrame(np.c_[np.repeat(seed, min_len_1), np.arange(0, min_len_1)], columns = ['itrial', 'obs_idx'])
         sigmas_0 = sigmas_0_dict[method]
         sigmas_1 = sigmas_1_dict[method]
-        for k in range(0, len(sigmas_0_dict[method])):
-            paths['sigmas_0_'+str(k)] = sigmas_0_dict[method][k][0:min_len]
-            paths['martingales_0_'+str(k)] = martingales_0_dict[method][k][0:min_len]
-#             paths['cs_0_'+str(k)] = cs_0[k][0:min_len]
-            paths['losses_0_'+str(k)] = clean_loss[0:min_len]
-            paths['pvals_0_'+str(k)] = p_values_0_dict[method][k][0:min_len]
-            paths['coverage_0_'+str(k)] = coverage_0_dict[method][k][0:min_len]
-            paths['widths_0_'+str(k)] = widths_0_dict[method][k][0:min_len]
+        for k in range(0, len(sigmas_0)):
+            paths['sigmas_0_'+str(k)] = sigmas_0_dict[method][k]
+            paths['martingales_0_'+str(k)] = martingales_0_dict[method][k]
+            paths['pvals_0_'+str(k)] = p_values_0_dict[method][k]
+            paths['coverage_0_'+str(k)] = coverage_0_dict[method][k]
+            paths['widths_0_'+str(k)] = widths_0_dict[method][k]
         for k in range(0, len(sigmas_1)):
-            paths['sigmas_1_'+str(k)] = sigmas_1[k][0:min_len]
-            paths['martingales_1_'+str(k)] = martingales_1_dict[method][k][0:min_len]
-#             paths['cs_1_'+str(k)] = cs_1[k][0:min_len]
+            paths['sigmas_1_'+str(k)] = sigmas_1[k]
+            paths['martingales_1_'+str(k)] = martingales_1_dict[method][k]
+            paths['pvals_1_'+str(k)] = p_values_1_dict[method][k]
+            paths['coverage_1_'+str(k)] = coverage_1_dict[method][k]
+            paths['widths_1_'+str(k)] = widths_1_dict[method][k]
         paths_dict[method] = paths
+        # paths_dict_1[method] = paths_1
 
         if args.run_PR_ST:
             ## PR_ST_cp baseline method:
@@ -485,19 +502,19 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=10, help='Number of epochs to train the MLP model.')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate of MLP')
     parser.add_argument('--bs', type=int, default=64, help='Batch size for training')
-    parser.add_argument('--train_val_test_split_only', type=bool, default=False, help='Only split data into train/test sets or train/validation/test sets.')
     parser.add_argument('--corruption_type', type=str, default='fog', help='Type of corruption to apply to MNIST/CIFAR dataset.')
     parser.add_argument('--severity', type=int, default=5, help='Level of corruption to apply to MNIST/CIFAR dataset.')
     parser.add_argument('--init_phase', type=int, default=500, help="Num test pts that pre-trained density-ratio estimator has access to")
     parser.add_argument('--schedule', type=str, default='variable', help='Training schedule: variable or fixed.')
     parser.add_argument('--errs_window', type=int, default=50, help='Num observations to average for plotting errors.')
-    parser.add_argument('--plot_errors', type=bool, default=True, help='Whether to also plot absolute errors.')
     parser.add_argument('--mixture_ratio_val', type=float, default=0.1, help='Mixture ratio of corruption for validation set.')
     parser.add_argument('--mixture_ratio_test', type=float, default=0.9, help='Mixture ratio of corruption for test set.')
     parser.add_argument('--val_set_size', type=int, default=10000, help='Validation set size.')
     parser.add_argument('--alpha', type=float, default=0.1, help='Pre-specified miscoverage rate.')
     parser.add_argument('--sr_threshold', type=float, default=1e20, help='Threshold for shiryaev roberts procedure.')
     parser.add_argument('--mt_threshold', type=float, default=1e20, help='Martingale threshold.')
+    parser.add_argument('--num_samples_vis', type=int, default=1000, help='Number of samples to visualize.')
+    parser.add_argument('--weight_epoch', type=int, default=80, help='Number of epoch for training weight estimator.')
 
     ## PodRam baseline params:
     parser.add_argument('--run_PR_ST', dest='run_PR_ST', action='store_true', help="Whether to run PodkopaevRamdas sequential testing (their algorithm 1) baseline.")
@@ -530,12 +547,10 @@ if __name__ == "__main__":
     epochs = args.epochs
     lr = args.lr
     bs = args.bs
-    train_val_test_split_only = args.train_val_test_split_only
     corruption_type = args.corruption_type
     severity = args.severity
     schedule = args.schedule
     errs_window = args.errs_window
-    plot_errors = args.plot_errors
     mixture_ratio_val = args.mixture_ratio_val
     mixture_ratio_test = args.mixture_ratio_test
     val_set_size = args.val_set_size
@@ -571,7 +586,7 @@ if __name__ == "__main__":
             PR_CD_paths_dict_all['PR_CD_cp_'+method] = pd.DataFrame()
 
     methods_all = "_".join(args.methods)
-    setting = '{}-{}-{}-{}-nseeds{}-epochs{}-lr{}-bs{}-severity{}-methods{}-mix_val{}-mix_test{}-val_set{}'.format(
+    setting = '{}-{}-{}-{}-nseeds{}-epochs{}-lr{}-bs{}-severity{}-methods{}-mix_val{}-mix_test{}-val_set{}-init{}'.format(
         args.dataset0,
         args.dataset1,
         args.corruption_type,
@@ -584,7 +599,8 @@ if __name__ == "__main__":
         methods_all,
         args.mixture_ratio_val,
         args.mixture_ratio_test,
-        args.val_set_size
+        args.val_set_size,
+        args.init_phase
     )
 
     if run_PR_ST:
@@ -618,34 +634,29 @@ if __name__ == "__main__":
         else:
             loaders = get_cifar10_data(args)
             loader_1 = get_cifar10_c_data(args)
-        if args.train_val_test_split_only:
-            train_loader_0, val_loader_0, test_loader_0 = loaders
-            paths_dict_curr, PR_ST_paths_dict_curr, PR_CD_paths_dict_curr = training_function(
-                args=args,
-                train_loader_0=train_loader_0, 
-                val_loader_0=val_loader_0,
-                test_loader_0=test_loader_0, 
-                loader_1=loader_1,
-                device=device,
-                setting=setting,
-            )
-        else:
-            train_loader_0, cal_test_w_est_loader_0, test_loader_0 = loaders
-            cal_test_w_est_loader_1, test_loader_mixed = loader_1
-            paths_dict_curr, PR_ST_paths_dict_curr, PR_CD_paths_dict_curr = training_function(
-                args=args,
-                train_loader_0=train_loader_0, 
-                test_loader_0=test_loader_0, 
-                test_loader_mixed=test_loader_mixed,
-                cal_test_w_est_loader_0=cal_test_w_est_loader_0,
-                cal_test_w_est_loader_1=cal_test_w_est_loader_1,
-                device=device,
-                setting=setting
-            )
+
+        train_loader_0, val_loader_0, test_loader_0, cal_test_w_est_loader_binary_0, cal_test_w_est_loader_0, test_loader_s, test_loader_s_binary = loaders
+        loader_1, cal_test_w_est_loader_binary_1, cal_test_w_est_loader_1, test_loader_mixed, test_loader_mixed_binary = loader_1
+        paths_dict_curr, PR_ST_paths_dict_curr, PR_CD_paths_dict_curr = training_function(
+            args=args,
+            train_loader_0=train_loader_0, 
+            val_loader_0=val_loader_0,
+            test_loader_0=test_loader_0, 
+            test_loader_s=test_loader_s,
+            test_loader_s_binary=test_loader_s_binary,
+            loader_1=loader_1,
+            test_loader_mixed=test_loader_mixed,
+            test_loader_mixed_binary=test_loader_mixed_binary,
+            cal_test_w_est_loader_0=cal_test_w_est_loader_0,
+            cal_test_w_est_loader_1=cal_test_w_est_loader_1,
+            cal_test_w_est_loader_binary_0=cal_test_w_est_loader_binary_0,
+            cal_test_w_est_loader_binary_1=cal_test_w_est_loader_binary_1,
+            device=device,
+            setting=setting
+        )
 
         for method in methods:
             paths_dict_all[method] = pd.concat([paths_dict_all[method], paths_dict_curr[method]], ignore_index=True)
-
             if run_PR_ST:
                 PR_ST_paths_dict_all['PR_ST_cp_'+method] = pd.concat([PR_ST_paths_dict_all['PR_ST_cp_'+method], \
                                                                       PR_ST_paths_dict_curr['PR_ST_cp_'+method]],\
@@ -669,7 +680,7 @@ if __name__ == "__main__":
     for method in methods[1:]:
         paths_dict_all[method]['method'] = method
         results_all = pd.concat([results_all, paths_dict_all[method]], ignore_index=True)
-        
+
         if run_PR_ST:
             PR_ST_paths_dict_all['PR_ST_cp_'+method]['method'] = 'PR_ST_cp_'+method
             PR_ST_results_all = pd.concat([PR_ST_results_all, PR_ST_paths_dict_all['PR_ST_cp_'+method]], ignore_index=True)
@@ -749,8 +760,8 @@ if __name__ == "__main__":
             paths_all_sub = paths_all[paths_all['obs_idx'].isin(np.arange(j*errs_window,(j+1)*errs_window))]
 
             ## Averages and stderrs for that window
-            errors_0_means_fold.append(paths_all_sub['losses_0_0'].mean())
-            errors_0_stderr_fold.append(paths_all_sub['losses_0_0'].std() / np.sqrt(n_seeds*errs_window))
+            # errors_0_means_fold.append(paths_all_sub['losses_0_0'].mean())
+            # errors_0_stderr_fold.append(paths_all_sub['losses_0_0'].std() / np.sqrt(n_seeds*errs_window))
 
             ## Coverages for window
             coverage_0_means_fold.append(paths_all_sub['coverage_0_0'].mean())
@@ -767,8 +778,8 @@ if __name__ == "__main__":
             pvals_0_stderr_fold.append(paths_all_sub['pvals_0_0'].std() / np.sqrt(n_seeds*errs_window))
 
         ## Averages and stderrs for that fold
-        errors_0_means.append(errors_0_means_fold)
-        errors_0_stderr.append(errors_0_stderr_fold)
+        # errors_0_means.append(errors_0_means_fold)
+        # errors_0_stderr.append(errors_0_stderr_fold)
 
         ## Average coverages for fold
         coverage_0_means.append(coverage_0_means_fold)
@@ -787,8 +798,8 @@ if __name__ == "__main__":
         sigmas_0_stderr_dict[method], sigmas_1_stderr_dict[method] = sigmas_0_stderr, sigmas_1_stderr
         martingales_0_means_dict[method], martingales_1_means_dict[method] = martingales_0_means, martingales_1_means
         martingales_0_stderr_dict[method], martingales_1_stderr_dict[method] = martingales_0_stderr, martingales_1_stderr
-        errors_0_means_dict[method], errors_1_means_dict[method] = errors_0_means, errors_1_means
-        errors_0_stderr_dict[method], errors_1_stderr_dict[method] = errors_0_stderr, errors_1_stderr
+        # errors_0_means_dict[method], errors_1_means_dict[method] = errors_0_means, errors_1_means
+        # errors_0_stderr_dict[method], errors_1_stderr_dict[method] = errors_0_stderr, errors_1_stderr
         coverage_0_means_dict[method] = coverage_0_means
         coverage_0_stderr_dict[method] = coverage_0_stderr
         pvals_0_means_dict[method] = pvals_0_means
@@ -819,7 +830,7 @@ if __name__ == "__main__":
         martingales_1_stderr_dict=martingales_1_stderr_dict,
         dataset0_name=dataset0_name,
         dataset0_shift_type=corruption_type,
-        martingale=["Shiryaev-Roberts", "martingale"],
+        martingale=["Shiryaev-Roberts", "Martingale"],
         n_seeds=n_seeds,
         cs_type=cs_type,
         setting=setting,
