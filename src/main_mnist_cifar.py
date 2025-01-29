@@ -505,7 +505,9 @@ if __name__ == "__main__":
     parser.add_argument('--bs', type=int, default=64, help='Batch size for training')
     parser.add_argument('--corruption_type', type=str, default='fog', help='Type of corruption to apply to MNIST/CIFAR dataset.')
     parser.add_argument('--severity', type=int, default=5, help='Level of corruption to apply to MNIST/CIFAR dataset.')
-    parser.add_argument('--init_phase', type=int, default=500, help="Num test pts that pre-trained density-ratio estimator has access to")
+    parser.add_argument('--init_clean', type=int, default=500, help="Num target pts that pre-trained density-ratio estimator has access to")
+    parser.add_argument('--init_corrupt', type=int, default=500, help="Num target pts that pre-trained density-ratio estimator has access to")
+
     parser.add_argument('--schedule', type=str, default='variable', help='Training schedule: variable or fixed.')
     parser.add_argument('--errs_window', type=int, default=50, help='Num observations to average for plotting errors.')
     parser.add_argument('--mixture_ratio_val', type=float, default=0.1, help='Mixture ratio of corruption for validation set.')
@@ -541,7 +543,6 @@ if __name__ == "__main__":
     dataset0_name = args.dataset0
     dataset1_name = args.dataset1
     n_seeds = args.n_seeds
-    init_phase = args.init_phase
     methods = args.methods
     verbose = args.verbose
     cs_type = args.cs_type
@@ -601,7 +602,7 @@ if __name__ == "__main__":
         args.mixture_ratio_val,
         args.mixture_ratio_test,
         args.val_set_size,
-        args.init_phase
+        args.init_clean
     )
 
     if run_PR_ST:

@@ -6,18 +6,21 @@ do
         --dataset0 cifar10 \
         --dataset1 cifar10_c \
         --n_seeds 1 \
-        --cs_type neg_log \
-        --methods baseline \
+        --cs_type probability \
+        --methods fixed_cal_offline none \
         --schedule variable \
         --epochs 30 \
+        --weight_epoch 80 \
         --lr 0.001 \
         --bs 64 \
-        --init_phase 500 \
+        --init_clean 50 \
+        --init_corrupt 1 \
+        --alpha 0.1 \
         --corruption_type $corruption \
         --severity 5 \
         --mixture_ratio_val 0.1 \
-        --mixture_ratio_test 0.9 \
-        --val_set_size 1000 \
-        --train_val_test_split_only \
-        --errs_window 1
+        --mixture_ratio_test 0.3 \
+        --val_set_size 100 \
+        --errs_window 1 \
+        --num_samples_vis 600 
 done

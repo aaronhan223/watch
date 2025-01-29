@@ -247,11 +247,13 @@ def replicate_dataset(original_dataset, transform=None):
 
 def cal_test_mixture(args, fulltrainset, corrupted_dataset, transform=None, train_indices=None, val_dataset_indices=None):
     assert args.val_set_size * args.mixture_ratio_val < len(corrupted_dataset) * args.mixture_ratio_test, "Not enough data to sample from"
+    init_phase = args.init_clean
     if train_indices is None:
         all_indices_train = np.arange(len(fulltrainset))
         random.shuffle(all_indices_train)
         train_indices = all_indices_train[:len(fulltrainset) - args.val_set_size]
         val_dataset_indices = all_indices_train[len(fulltrainset) - args.val_set_size:]
+        init_phase = args.init_corrupt
     mix_test_indices = train_indices[:int(args.mixture_ratio_test*len(corrupted_dataset))]
     original_val_indices = val_dataset_indices[int(args.mixture_ratio_val*len(val_dataset_indices)):]
 
@@ -260,8 +262,8 @@ def cal_test_mixture(args, fulltrainset, corrupted_dataset, transform=None, trai
     remaining_test_indices = all_indices_test[:int(args.mixture_ratio_test*len(corrupted_dataset))]
     original_test_indices = all_indices_test[int(args.mixture_ratio_test*len(corrupted_dataset)):]
     mix_val_indices = remaining_test_indices[:int(args.mixture_ratio_val*len(val_dataset_indices))]
-    test_w_est_indices = original_test_indices[:args.init_phase]
-    rest_test_indices = original_test_indices[args.init_phase:]
+    test_w_est_indices = original_test_indices[:init_phase]
+    rest_test_indices = original_test_indices[init_phase:]
     
     new_train_dataset = replicate_dataset(fulltrainset, transform=transform)
     new_test_dataset = replicate_dataset(corrupted_dataset, transform=transform)
