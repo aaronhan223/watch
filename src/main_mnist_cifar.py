@@ -12,6 +12,7 @@ from p_values import *
 import argparse
 import random
 from podkopaev_ramdas.baseline_alg import podkopaev_ramdas_algorithm1, podkopaev_ramdas_changepoint_detection
+from resnet import ResNet20, ResNet32
 import time
 from datetime import date
 
@@ -214,7 +215,7 @@ def train_and_evaluate(args, train_loader_0, test_loader_0, test_loader_s, devic
     if dataset0_name == 'mnist':
         model = MLP(input_size=784, hidden_size=256, num_classes=10).to(device)
     elif dataset0_name == 'cifar10':
-        model = MLP(input_size=3*32*32, hidden_size=1024, num_classes=10).to(device)
+        model = ResNet20().to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     fit(model, args.epochs, train_loader_0, optimizer, setting, device)
 

@@ -52,7 +52,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
         plt.grid(True, which="both", ls="--")
         plt.xticks(fontsize=x_tick_size)        
         plt.yticks(fontsize=y_tick_size)
-        plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/debug_{statistic_name}_clean_{setting}.pdf', bbox_inches='tight')
+        plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_{statistic_name}_clean_{setting}.pdf', bbox_inches='tight')
 
     for p_i, paths_1_dict in enumerate(paths_1_dicts_all):
         # paths_1_stderr_dict = paths_1_stderr_dicts_all[p_i]
@@ -78,7 +78,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
         plt.grid(True, which="both", ls="--")
         plt.xticks(fontsize=x_tick_size)        
         plt.yticks(fontsize=y_tick_size)
-        plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/debug_{statistic_name}_corrupted_{setting}.pdf', bbox_inches='tight')
+        plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_{statistic_name}_corrupted_{setting}.pdf', bbox_inches='tight')
 
 
 def plot_errors(errors_0_means_dict, errors_0_stderr_dict, 
