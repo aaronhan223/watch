@@ -96,13 +96,21 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             
             
 #             print("x_ctm_thresh : ", x_ctm_thresh)
-            ## NN distance conformity score
-            nbrs = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(X_train)
-            distances, _ = nbrs.kneighbors(X_cal_test_0)
+
             
             ## Distance from centroid conformity score:
 #             centroid_train = np.mean(X_train, axis=0)
 #             distances = (X_cal_test_0 - centroid_train).sum(axis=1)**2
+            if (dataset0_name == '1dim_synthetic_v3'):
+                
+                max_train = np.max(X_train, axis=0)
+                distances = (X_cal_test_0 - max_train).sum(axis=1)**2
+            else:
+                
+                ## NN distance conformity score
+                nbrs = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(X_train)
+                distances, _ = nbrs.kneighbors(X_cal_test_0)                
+            
             X_conformity_scores_0 = distances.flatten()
             p_values = calculate_p_values(X_conformity_scores_0)
             
@@ -117,6 +125,7 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             ## Test point index where X-CTM first exceeds x_ctm_thresh*sigma[n_cal-1]
             x_alarm_idx = n_cal + np.argmax(np.bitwise_or(sigma_test>=x_sched_thresh, martingale_value_test>=x_ctm_thresh)) if (np.max(sigma_test)>=x_sched_thresh or np.max(martingale_value_test)>=x_ctm_thresh) else len(X_cal_test_0-1) 
             
+            print("test pt alarm : ", x_alarm_idx - n_cal)
 
             adapt_starts.append(x_alarm_idx) ## Update where to start adaptation
             
