@@ -117,6 +117,20 @@ def get_1dim_synthetic_v2_data(size=1000):
 
     return pd.DataFrame(np.c_[X, Y])
 
+def mean_func_synthetic_v3(x):
+    return np.sin(x/20)+3/2*x/20
+
+def get_1dim_synthetic_v3_data(size=20000):
+    high=100 # 2*np.pi
+    X = np.random.uniform(low=15, high=high, size=size)
+    Y = np.zeros(size)
+    for i in range(0, size):
+        
+        Y[i] = np.random.normal(mean_func_synthetic_v3(X[i]), ((X[i]+20)/100)**2)
+
+    return pd.DataFrame(np.c_[X, Y], columns=['X','Y'])
+
+
 
 class NpyDataset(Dataset):
     """
@@ -520,6 +534,9 @@ def get_w(x_pca, x, dataset, bias):
     elif (dataset == '1dim_synthetic_v2'):
         return np.exp(x * bias).squeeze()
     
+    elif (dataset == '1dim_synthetic_v3'):
+        return np.exp(x * bias).squeeze()
+    
     elif (dataset == '1dim_linear_synthetic'):
         return np.exp(x * bias).squeeze()
     
@@ -647,9 +664,13 @@ def wsample(wts, n, d, frac=0.5):
     return indices
 
 
-def exponential_tilting_indices(x_pca, x, dataset, bias=1):
+def exponential_tilting_indices(x_pca, x, dataset, bias=1, frac=0.5):
 #     x = np.matrix(x)
-    (n, d) = x.shape
+    if x.ndim == 1:
+        n = len(x)
+        d = 1
+    else:
+        (n, d) = x.shape
 #     print("n : ", n, "d :", d)
     
     importance_weights = get_w(x_pca, x, dataset, bias)
@@ -658,7 +679,7 @@ def exponential_tilting_indices(x_pca, x, dataset, bias=1):
 #     print("L1 squared : ", np.linalg.norm(weights, ord=1)**2)
 #     print("L2 : ", np.linalg.norm(weights, ord=2)**2)
 #     print("Effective sample size : ", np.linalg.norm(weights, ord=1)**2 / np.linalg.norm(weights, ord=2)**2)
-    return wsample(importance_weights, n, d)
+    return wsample(importance_weights, n, d, frac=frac)
 
 
 def split_into_folds(dataset0_train, num_folds, seed=0):
@@ -680,6 +701,180 @@ def split_into_folds(dataset0_train, num_folds, seed=0):
     return X, y, folds
 
 
+# def split_and_shift_dataset0(
+#     dataset0, 
+#     dataset0_name, 
+#     test0_size, 
+#     dataset0_shift_type='none', 
+#     cov_shift_bias=1.0, 
+#     label_uptick=1,
+#     seed=0,
+#     noise_mu=0,
+#     noise_sigma=0,
+#     num_test_unshifted=500
+# ):
+    
+#     dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
+#     dataset0_train = dataset0_train.reset_index(drop=True).astype(float)
+#     dataset0_test_0 = dataset0_test_0.reset_index(drop=True).astype(float)
+    
+#     dataset0_test_0_unshifted_idx = np.arange(num_test_unshifted) ## indices of unshifted test points (before changepoint)
+#     dataset0_test_0_post_change = dataset0_test_0.iloc[num_test_unshifted:] ## test candiate pts excluding unshifted idx
+#     ## Note: idx in "dataset0_test_0" == num_test_unshifted + idx in "dataset0_test_0_post_change"
+    
+    
+#     dataset0_test_0_post_change = dataset0_test_0_post_change.reset_index(drop=True)
+
+#     if (dataset0_shift_type == 'none'):
+#         ## No shift within dataset0    
+#         return dataset0_train, dataset0_test_0
+    
+    
+#     elif (dataset0_shift_type == 'covariate'):
+#         ## Covariate shift within dataset0
+        
+        
+#         dataset0_train_copy = dataset0_train.copy()
+#         X_train = dataset0_train_copy.iloc[:, :-1].values
+#         dataset0_test_0_post_change = dataset0_test_0_post_change.copy()
+#         X_test_0 = dataset0_test_0_post_change.iloc[:, :-1].values
+        
+#         ## Get indices of biased test samples post changepoint (indices relative to dataset0_test_0 by adding num_test_unshifted)
+#         dataset0_test_0_biased_idx = num_test_unshifted + exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
+        
+#         dataset0_test_0_idx = np.concatenate((dataset0_test_0_unshifted_idx, dataset0_test_0_biased_idx))
+        
+#         return dataset0_train, dataset0_test_0.iloc[dataset0_test_0_idx]
+    
+    
+#     elif (dataset0_shift_type == 'label'):
+#         ## Label shift within dataset0
+
+#         if 'wine' in dataset0_name:
+#             # Define a threshold for 'alcohol' to identify high alcohol content wines
+#             alcohol_threshold = dataset0_test_0['alcohol'].quantile(label_uptick)
+#             # Increase the quality score by a number for wines with alcohol above the threshold
+#             indices_to_shift = num_test_unshifted + np.where(dataset0_test_0_post_change['alcohol'] > alcohol_threshold)[0]
+#             dataset0_test_0.loc[indices_to_shift, 'quality'] += 1
+#             dataset0_test_0['quality'] = dataset0_test_0['quality'].clip(lower=0, upper=10)
+            
+#         elif '1dim_synthetic_v3' in dataset0_name:
+            
+#             x_threshold = dataset0_test_0['X'].quantile(0.25)
+#             indices_to_shift = num_test_unshifted + np.where(dataset0_test_0_post_change['X'] < x_threshold)[0]
+#             print("uptick mag : ", (x_threshold - dataset0_test_0.loc[indices_to_shift, 'Y']))
+#             dataset0_test_0.loc[indices_to_shift, 'Y'] *= (x_threshold - dataset0_test_0.loc[indices_to_shift, 'Y'])
+
+            
+#         elif 'airfoil' in dataset0_name:
+#             velocity_threshold = dataset0_test_0['Velocity'].median()
+#             dataset0_test_0.loc[dataset0_test_0['Velocity'] > velocity_threshold, 'Sound'] += 3
+#         elif 'communities' in dataset0_name:
+#             youth_threshold = dataset0_test_0['agePct12t29'].median()
+#             # Increase ViolentCrimesPerPop by 20% for communities where agePct12t29 is above the median
+#             dataset0_test_0.loc[dataset0_test_0['agePct12t29'] > youth_threshold, 'ViolentCrimesPerPop'] *= 1.2
+#             dataset0_test_0['ViolentCrimesPerPop'] = dataset0_test_0['ViolentCrimesPerPop'].clip(lower=0, upper=1)
+#         elif 'superconduct' in dataset0_name:
+#             ea_threshold = dataset0_test_0['mean_ElectronAffinity'].quantile(0.75)
+#             # Increase critical_temp by 10% for materials where oxygen content is above the threshold
+#             indices_to_shift = num_test_unshifted + np.where(dataset0_test_0_post_change['mean_ElectronAffinity'] > ea_threshold)[0]
+#             dataset0_test_0.loc[indices_to_shift, 'critical_temp'] *= label_uptick #2 #1.1
+# #             dataset0_test_0['critical_temp'] = dataset0_test_0['critical_temp'].clip(lower=0, upper=200)
+            
+#         elif 'wave' in dataset0_name:
+#             x_mean_threshold = dataset0_test_0['X1'].median()
+#             # Increase Power_Output by 15% for instances where X_mean is above the threshold
+#             dataset0_test_0.loc[dataset0_test_0['X1'] > x_mean_threshold, 'Power_Output'] *= 1.15
+#             dataset0_test_0['Power_Output'] = dataset0_test_0['Power_Output'].clip(lower=0)
+            
+#         elif 'bike_sharing' in dataset0_name:
+# #             ## For 25% coldest of days, increase number of bike rentals by 10%:
+#             temp_threshold = dataset0_test_0['temp'].quantile(0.25) 
+#             indices_to_shift = num_test_unshifted + np.where(dataset0_test_0_post_change['temp'] > temp_threshold)[0]
+#             dataset0_test_0.loc[indices_to_shift, 'count'] *= label_uptick #2
+# #             temp_mean = dataset0_test_0['temp'].mean() 
+# # #             indices_to_shift = num_test_unshifted + np.where(dataset0_test_0_post_change['temp'] > temp_threshold)[0]
+# #             dataset0_test_0.loc[num_test_unshifted:, 'count'] = dataset0_test_0.loc[num_test_unshifted:, 'count']**2 / temp_mean #2
+
+#         elif 'meps' in dataset0_name:
+#             age_threshold = dataset0_test_0['AGE53X'].quantile(0.25) 
+#             indices_to_shift = num_test_unshifted + np.where(dataset0_test_0_post_change['AGE53X'] > age_threshold)[0]
+#             dataset0_test_0.loc[indices_to_shift, 'UTILIZATION'] *= label_uptick #1.5
+            
+
+#         return dataset0_train, dataset0_test_0
+
+#     elif (dataset0_shift_type == 'noise'):
+#         ## X-dependent noise within dataset0
+#         data_before_shift = dataset0_test_0.copy()
+#         if 'wine' in dataset0_name:
+#             dataset0_test_0['sulphates'] += np.where(
+#             dataset0_test_0['quality'] >= dataset0_test_0['quality'].median(),
+#             # Add positive noise for higher quality wines
+#             np.random.normal(loc=noise_mu, scale=noise_sigma, size=len(dataset0_test_0)),
+#             # Subtract noise for lower quality wines
+#             np.random.normal(loc=-noise_mu, scale=noise_sigma, size=len(dataset0_test_0)))
+#             # Ensure 'sulphates' remains within valid range
+#             dataset0_test_0['sulphates'] = dataset0_test_0['sulphates'].clip(lower=data_before_shift['sulphates'].min(), upper=data_before_shift['sulphates'].max())
+
+#         elif 'airfoil' in dataset0_name:
+#             # Compute the median of Scaled sound pressure level
+#             spl_median = dataset0_test_0['Sound'].median()
+#             dataset0_test_0['Suction'] += np.where(
+#                 dataset0_test_0['Sound'] >= spl_median,
+#                 # Add positive noise for higher sound pressure levels
+#                 np.random.normal(loc=0.0001, scale=0.00005, size=len(dataset0_test_0)),
+#                 # Subtract noise for lower sound pressure levels
+#                 np.random.normal(loc=-0.0001, scale=0.00005, size=len(dataset0_test_0))
+#             )
+#             # Ensure 'Suction_side_displacement_thickness' remains within valid range
+#             min_value = data_before_shift['Suction'].min()
+#             max_value = data_before_shift['Suction'].max()
+#             dataset0_test_0['Suction'] = dataset0_test_0['Suction'].clip(lower=min_value, upper=max_value)
+        
+#         elif 'communities' in dataset0_name:
+#             crime_median = dataset0_test_0['ViolentCrimesPerPop'].median()
+
+#             # Add noise to 'PctWorkMom' (percentage of moms in workforce)
+#             dataset0_test_0['PctWorkMom'] += np.where(
+#                 dataset0_test_0['ViolentCrimesPerPop'] >= crime_median,
+#                 # Add positive noise for higher crime rates
+#                 np.random.normal(loc=1.0, scale=0.5, size=len(dataset0_test_0)),
+#                 # Subtract noise for lower crime rates
+#                 np.random.normal(loc=-1.0, scale=0.5, size=len(dataset0_test_0))
+#             )
+
+#             # Ensure 'PctWorkMom' remains within valid range (e.g., 0 to 100)
+#             dataset0_test_0['PctWorkMom'] = dataset0_test_0['PctWorkMom'].clip(lower=0, upper=100)
+
+#         elif 'superconduct' in dataset0_name:
+#             temp_median = dataset0_test_0['critical_temp'].median()
+#             # Add noise to 'mean_atomic_mass' based on 'critical_temp'
+#             dataset0_test_0['mean_atomic_mass'] += np.where(
+#                 dataset0_test_0['critical_temp'] >= temp_median,
+#                 # Add positive noise for higher critical temperatures
+#                 np.random.normal(loc=5.0, scale=2.0, size=len(dataset0_test_0)),
+#                 # Subtract noise for lower critical temperatures
+#                 np.random.normal(loc=-5.0, scale=2.0, size=len(dataset0_test_0))
+#             )
+#             dataset0_test_0['mean_atomic_mass'] = dataset0_test_0['mean_atomic_mass'].clip(lower=0)
+
+#         elif 'wave' in dataset0_name:
+#             power_median = dataset0_test_0['Power_Output'].median()
+#             # Add noise to 'Y_mean' based on 'Power_Output'
+#             dataset0_test_0['Y1'] += np.where(
+#                 dataset0_test_0['Power_Output'] >= power_median,
+#                 # Add positive noise for higher Power_Output
+#                 np.random.normal(loc=0.5, scale=0.2, size=len(dataset0_test_0)),
+#                 # Subtract noise for lower Power_Output
+#                 np.random.normal(loc=-0.5, scale=0.2, size=len(dataset0_test_0))
+#             )
+#             dataset0_test_0['Y1'] = dataset0_test_0['Y1'].clip(lower=data_before_shift['Y1'].min(), upper=data_before_shift['Y1'].max())
+
+#         return dataset0_train, dataset0_test_0
+    
+from sklearn.model_selection import train_test_split
+
 def split_and_shift_dataset0(
     dataset0, 
     dataset0_name, 
@@ -692,7 +887,6 @@ def split_and_shift_dataset0(
     noise_sigma=0,
     num_test_unshifted=500
 ):
-    
     dataset0_train, dataset0_test_0 = train_test_split(dataset0, test_size=test0_size, shuffle=True, random_state=seed)
     dataset0_train = dataset0_train.reset_index(drop=True).astype(float)
     dataset0_test_0 = dataset0_test_0.reset_index(drop=True).astype(float)
@@ -728,6 +922,7 @@ def split_and_shift_dataset0(
     
     elif (dataset0_shift_type == 'label'):
         ## Label shift within dataset0
+        print(dataset0_name)
 
         if 'wine' in dataset0_name:
             # Define a threshold for 'alcohol' to identify high alcohol content wines
@@ -736,6 +931,18 @@ def split_and_shift_dataset0(
             indices_to_shift = num_test_unshifted + np.where(dataset0_test_0_post_change['alcohol'] > alcohol_threshold)[0]
             dataset0_test_0.loc[indices_to_shift, 'quality'] += 1
             dataset0_test_0['quality'] = dataset0_test_0['quality'].clip(lower=0, upper=10)
+            
+        elif '1dim_synthetic_v3' in dataset0_name:
+            
+            x_threshold = dataset0_test_0['X'].quantile(0.5)
+            indices_to_shift = num_test_unshifted + np.where(dataset0_test_0_post_change['X'] < x_threshold)[0]
+#             indices_to_shift = np.random.choice(indices_to_shift, size = int(0.5*len(indices_to_shift)))
+#             print("uptick mag : ", (x_threshold - dataset0_test_0.loc[indices_to_shift, 'Y']))
+#             display((x_threshold - dataset0_test_0.loc[indices_to_shift, 'X']).hist())
+#             plt.show()
+#             dataset0_test_0.loc[indices_to_shift, 'Y'] *= np.abs(x_threshold - dataset0_test_0.loc[indices_to_shift, 'X'])/x_threshold * label_uptick
+            max_uptick_magnitude = (x_threshold - dataset0_test_0.loc[indices_to_shift, 'X'])**2 * label_uptick
+            dataset0_test_0.loc[indices_to_shift, 'Y'] += np.random.uniform(low=0.25, high=max_uptick_magnitude) + np.random.normal(scale=0.1)
             
         elif 'airfoil' in dataset0_name:
             velocity_threshold = dataset0_test_0['Velocity'].median()

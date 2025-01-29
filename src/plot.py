@@ -53,6 +53,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
     for p_i, paths_0_dict in enumerate(paths_0_dicts_all):
         paths_0_stderr_dict = paths_0_stderr_dicts_all[p_i]
         statistic_name = martingale[p_i]
+        print("plotting ", statistic_name)
         stat_validity = stat_validities[statistic_name]
     
         plt.figure(figsize=(10, 8))

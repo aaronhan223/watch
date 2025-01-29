@@ -226,7 +226,7 @@ def retrain_count(args, conformity_score, training_schedule, sr_threshold, cu_co
                   cs_type='abs',verbose=False, method='fixed_cal_oracle', depth=1, init_ctm_on_cal_set=True):
     
     if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline', 'fixed_cal_dyn']):
-        print("adapt_start : ", adapt_start)
+#         print("adapt_start : ", adapt_start)
         p_values, q_lower, q_upper = calculate_weighted_p_values_and_quantiles(args, conformity_score, W_i, adapt_start, method)
         
         
@@ -384,8 +384,8 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
         n_cal = n_cals[i]
             
         for method in methods:
-            print("n_cal : ", n_cal)
-            print("len W_dict[method][i] : ", len(W_dict[method][i]))
+#             print("n_cal : ", n_cal)
+#             print("len W_dict[method][i] : ", len(W_dict[method][i]))
             
             if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline', 'fixed_cal_dyn']):
                 m_0, s_0, martingale_value_0, sigma_0, cusum_0, p_vals, q_lower, q_upper, martingale_runtime, sigma_runtime, cusum_runtime, martingale_alarm, sigma_alarm, cusum_alarm = retrain_count(args, score_0, training_schedule, sr_threshold, cu_confidence, W_dict[method][i], adapt_starts[i], n_cal, alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set)
@@ -400,7 +400,7 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
             if s_0:
                 retrain_s_count_0_dict[method] += 1
                 
-            print("martingale_alarm, sigma_alarm, cusum_alarm, ", martingale_alarm, sigma_alarm, cusum_alarm)
+#             print("martingale_alarm, sigma_alarm, cusum_alarm, ", martingale_alarm, sigma_alarm, cusum_alarm)
                 
             martingales_0_dict[method].append(martingale_value_0)
             sigmas_0_dict[method].append(sigma_0)
@@ -454,8 +454,8 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
                 print("Running PodRam algorithm 1")
                 start_time = time.time()
                 
-                print("source miscoverage loss : ", np.mean(miscoverage_losses[:n_holdout]))
-                print("target miscoverage loss : ", np.mean(miscoverage_losses[n_holdout:]))
+#                 print("source miscoverage loss : ", np.mean(miscoverage_losses[:n_holdout]))
+#                 print("target miscoverage loss : ", np.mean(miscoverage_losses[n_holdout:]))
         
                 PR_ST_alarm_test_idx, PR_ST_source_UCB_tol, PR_ST_target_LCBs, PR_ST_runtime = podkopaev_ramdas_algorithm1(\
                                                                                       miscoverage_losses[:n_holdout], \
@@ -484,7 +484,7 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
                 PR_ST_coverage_0_dict['PR_ST_cp_'+method].append(coverage_pr_holdout_test)
                 PR_ST_widths_0_dict['PR_ST_cp_'+method].append(widths_pr_holdout_test)
                 
-                print("PR_ST_alarm_test_idx : ", PR_ST_alarm_test_idx)
+#                 print("PR_ST_alarm_test_idx : ", PR_ST_alarm_test_idx)
 
                 print("Running PodRam changepoint detection algo")
                 start_time = time.time()
@@ -507,7 +507,7 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
             
                 print("Completed PodRam changepoint detection algo; runtime in min = ", (time.time()-start_time)/60)
                 
-                print("PR_CD_alarm_test_idx : ", PR_CD_alarm_test_idx)
+#                 print("PR_CD_alarm_test_idx : ", PR_CD_alarm_test_idx)
                 
                 ## Record results for PodRam changepoint detection method
                 if (PR_CD_alarm_test_idx is None):
@@ -595,16 +595,20 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
     ## Save alarm indices
     alarm_df['martingale_alarm'] = [martingale_0_alarm_dict[method][0] for method in methods]
     alarm_df['SR_alarm'] = [sigmas_0_alarm_dict[method][0] for method in methods]
-    alarm_df['CUSUM_alarm'] = [cusum_0_alarm_dict[method][0] for method in methods]
-    alarm_df['PR_ST_alarm'] = [PR_ST_alarm_0_dict['PR_ST_cp_'+method][0] for method in methods]
-    alarm_df['PR_CD_alarm'] = [PR_CD_alarm_0_dict['PR_CD_cp_'+method][0] for method in methods]
+        
+    if run_PR_ST:
+        alarm_df['CUSUM_alarm'] = [cusum_0_alarm_dict[method][0] for method in methods]
+        alarm_df['PR_ST_alarm'] = [PR_ST_alarm_0_dict['PR_ST_cp_'+method][0] for method in methods]
+        alarm_df['PR_CD_alarm'] = [PR_CD_alarm_0_dict['PR_CD_cp_'+method][0] for method in methods]
     
     ## Save runtime to alarm
     alarm_df['martingale_runtime'] = [martingale_0_runtime_dict[method][0] for method in methods]
     alarm_df['SR_runtime'] = [sigmas_0_runtime_dict[method][0] for method in methods]
-    alarm_df['CUSUM_runtime'] = [cusum_0_runtime_dict[method][0] for method in methods]
-    alarm_df['PR_ST_runtime'] = [PR_ST_runtime_0_dict['PR_ST_cp_'+method][0] for method in methods]
-    alarm_df['PR_CD_runtime'] = [PR_CD_runtime_0_dict['PR_CD_cp_'+method][0] for method in methods]
+        
+    if run_PR_CD:
+        alarm_df['CUSUM_runtime'] = [cusum_0_runtime_dict[method][0] for method in methods]
+        alarm_df['PR_ST_runtime'] = [PR_ST_runtime_0_dict['PR_ST_cp_'+method][0] for method in methods]
+        alarm_df['PR_CD_runtime'] = [PR_CD_runtime_0_dict['PR_CD_cp_'+method][0] for method in methods]
     
     
     for method in methods:
@@ -616,7 +620,7 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
         ## (W)CTM methods:
         sigmas_0 = sigmas_0_dict[method]
         sigmas_1 = sigmas_1_dict[method]
-        print("min_len : ", min_len)
+#         print("min_len : ", min_len)
         for k in range(0, len(sigmas_0_dict[method])):
             paths['sigmas_0_'+str(k)] = sigmas_0_dict[method][k][0:min_len]
             paths['cusum_0_'+str(k)] = cusum_0_dict[method][k][0:min_len]
@@ -671,7 +675,6 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
             PR_CD_paths_dict['PR_CD_cp_'+method] = PR_CD_paths
             
             
-    print("alarm_df : ", alarm_df)
     
     return paths_dict, PR_ST_paths_dict, PR_CD_paths_dict, alarm_df
 
@@ -907,39 +910,45 @@ if __name__ == "__main__":
         else:
             alarm_df_all = pd.concat([alarm_df_all, alarm_df_curr], ignore_index=True)
         
-    ## Save all results together
-    results_all = paths_dict_all[methods[0]]
-    results_all['method'] = methods[0]
-    
-    
-    
-    if run_PR_ST:
-        PR_ST_results_all = PR_ST_paths_dict_all['PR_ST_cp_'+methods[0]]
-        PR_ST_results_all['method'] = 'PR_ST_cp_'+methods[0]
-    if run_PR_CD:
-        PR_CD_results_all = PR_CD_paths_dict_all['PR_CD_cp_'+methods[0]]
-        PR_CD_results_all['method'] = 'PR_CD_cp_'+methods[0]
-    
-    for method in methods[1:]:
-        paths_dict_all[method]['method'] = method
-        results_all = pd.concat([results_all, paths_dict_all[method]], ignore_index=True)
         
+        
+    if (seed % 25 == 0 or seed == n_seeds - 1):
+        ## Save all results together
+        results_all = paths_dict_all[methods[0]]
+        results_all['method'] = methods[0]
+
+
+
         if run_PR_ST:
-            PR_ST_paths_dict_all['PR_ST_cp_'+method]['method'] = 'PR_ST_cp_'+method
-            PR_ST_results_all = pd.concat([PR_ST_results_all, PR_ST_paths_dict_all['PR_ST_cp_'+method]], ignore_index=True)
+            PR_ST_results_all = PR_ST_paths_dict_all['PR_ST_cp_'+methods[0]]
+            PR_ST_results_all['method'] = 'PR_ST_cp_'+methods[0]
         if run_PR_CD:
-            PR_CD_paths_dict_all['PR_CD_cp_'+method]['method'] = 'PR_CD_cp_'+method
-            PR_CD_results_all = pd.concat([PR_CD_results_all, PR_CD_paths_dict_all['PR_CD_cp_'+method]], ignore_index=True)
-        
-        
-    results_all.to_csv(f'../results/{date.today()}_{setting}_v4.csv')
-    
-    alarm_df_all.to_csv(f'../results/{date.today()}_Alarms_{setting}_v4.csv')
-    
-    if run_PR_ST:
-        PR_ST_results_all.to_csv(f'../results/{date.today()}_{setting}_PR_ST-{PR_ST_setting}_v4.csv')
-    if run_PR_CD:
-        PR_CD_results_all.to_csv(f'../results/{date.today()}_{setting}_PR_CD-{PR_CD_setting}_v4.csv')
+            PR_CD_results_all = PR_CD_paths_dict_all['PR_CD_cp_'+methods[0]]
+            PR_CD_results_all['method'] = 'PR_CD_cp_'+methods[0]
+
+        for method in methods[1:]:
+            paths_dict_all[method]['method'] = method
+            results_all = pd.concat([results_all, paths_dict_all[method]], ignore_index=True)
+
+            if run_PR_ST:
+                PR_ST_paths_dict_all['PR_ST_cp_'+method]['method'] = 'PR_ST_cp_'+method
+                PR_ST_results_all = pd.concat([PR_ST_results_all, PR_ST_paths_dict_all['PR_ST_cp_'+method]], ignore_index=True)
+            if run_PR_CD:
+                PR_CD_paths_dict_all['PR_CD_cp_'+method]['method'] = 'PR_CD_cp_'+method
+                PR_CD_results_all = pd.concat([PR_CD_results_all, PR_CD_paths_dict_all['PR_CD_cp_'+method]], ignore_index=True)
+
+
+        results_all.to_csv(f'../results/{date.today()}_{setting}_v5.csv')
+
+        if run_PR_CD:
+            alarm_df_all.to_csv(f'../results/{date.today()}_Alarms_{setting}_SR_CD{PR_CD_setting}v5.csv')
+        else:
+            alarm_df_all.to_csv(f'../results/{date.today()}_Alarms_{setting}_v4.csv')
+
+        if run_PR_ST:
+            PR_ST_results_all.to_csv(f'../results/{date.today()}_{setting}_PR_ST-{PR_ST_setting}_v5.csv')
+        if run_PR_CD:
+            PR_CD_results_all.to_csv(f'../results/{date.today()}_{setting}_PR_CD-{PR_CD_setting}_v5.csv')
     
     
     ## Preparation for plotting
@@ -1000,7 +1009,7 @@ if __name__ == "__main__":
             cusum_0_stderr.append(paths_all[['cusum_0_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
 
 #             pdb.set_trace()
-            pdb.set_trace()
+#             pdb.set_trace()
             martingales_0_means.append(paths_all[['martingales_0_'+str(i), 'obs_idx']].groupby('obs_idx').mean())
             martingales_0_stderr.append(paths_all[['martingales_0_'+str(i), 'obs_idx']].groupby('obs_idx').std() / np.sqrt(n_seeds))
 
@@ -1120,7 +1129,8 @@ if __name__ == "__main__":
     if training_schedule == 'variable':
         martingale = ["Shiryaev-Roberts", "Martingale"]
     elif training_schedule == 'both':
-        martingale = ["CUSUM", "Shiryaev-Roberts", "Martingale"]
+        print("Training schedule == both")
+        martingale = ["Shiryaev-Roberts", "Martingale", "CUSUM"]
     else:
         martingale = ["CUSUM", "Martingale"]
 

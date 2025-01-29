@@ -12,7 +12,7 @@ import time
 
 def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betting', target_conc_type='betting', \
                                 verbose=False, eps_tol=0.0, source_delta=0.005, target_delta = 0.005,\
-                                stop_criterion='fixed_length', max_length=5000):
+                                stop_criterion='fixed_length', max_length=2000):
     """
     Implementation of Podkopaev & Ramdas *sequential testing* baseline, i.e., algorithm 1 in that paper. 
 
@@ -60,7 +60,8 @@ def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betti
     T = len(test_losses)
     target_lower_bounds = [] # np.zeros(T)
     
-    for t in tqdm(range(T)):
+    for t in range(T):
+#     for t in tqdm(range(T)):
         tester.estimate_risk_target(test_losses[:(t+1)])
         target_lower_bounds.append(tester.target_risk_lower_bound)
         
@@ -77,7 +78,7 @@ def podkopaev_ramdas_algorithm1(cal_losses, test_losses, source_conc_type='betti
             if (stop_criterion == 'first_alarm'):
                 return alarm_idx, source_upper_bound_plus_tol, target_lower_bounds, elapsed_time_min
             
-        if (stop_criterion == 'fixed_length' and t > max_length):
+        if (t > max_length): #stop_criterion == 'fixed_length' and 
             return alarm_idx, source_upper_bound_plus_tol, target_lower_bounds, elapsed_time_min
            
     
@@ -132,10 +133,11 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
     
     ## Runs algorithm1 of that paper at each test timepoint and return the earliest stopping time.
     alarm_min = T+1
-#     for t in range(int(T/batch_size)):
+    
+    for t in range(int(T/batch_size)):
 #         print(t)
 
-    for t in tqdm(range(int(T/batch_size))):
+#     for t in tqdm(range(int(T/batch_size))):
         ## Initiate new sequential testing object
         ## Set up Drop_tester for computer UCB on source risk and LCB on target risk
         testers_all.append(Drop_tester())
@@ -188,6 +190,9 @@ def podkopaev_ramdas_changepoint_detection(cal_losses, test_losses, source_conc_
         if (stop_criterion=='fixed_length' and (alarm_idx is not None and (t+1)*batch_size >= max_length)):
             break
             
+        ## max length for any method
+        if ((t+1)*batch_size >= max_length):
+            break
     
     return alarm_idx, source_UCB_tol, np.array(target_max_LCBs), elapsed_time_min
 
