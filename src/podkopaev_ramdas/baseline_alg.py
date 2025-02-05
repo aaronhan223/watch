@@ -474,4 +474,4 @@ def plot_func(num_of_batches, batch_size, num_of_repeats, clean_mean, clean_std,
                     loc=1,
                     ncol=1,
                     prop={'size': 18})  # Two columns, horizontal group labels
-    plt.savefig(f'/cis/home/xhan56/code/wtr/figs/{setting}.pdf', bbox_inches='tight')
+    plt.savefig(os.getcwd() + f'/../figs/{setting}.pdf', bbox_inches='tight')

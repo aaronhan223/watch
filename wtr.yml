@@ -43,4 +43,4 @@ dependencies:
       - tzdata==2024.1
       - unzip==1.0.0
       - zipp==3.20.1
-prefix: /cis/home/xhan56/anaconda3/envs/wtr
+prefix: ./wtr
