@@ -28,30 +28,17 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
     paths_0_stderr_dicts_all = [dataset0_paths_stderr_dict, martingales_0_stderr_dict]
     paths_1_dicts_all = [dataset1_paths_dict, martingales_1_dict]
     paths_1_stderr_dicts_all = [dataset1_paths_stderr_dict, martingales_1_stderr_dict]
-    thresholds = [10**6, 10**2]
-    
+    thresholds = [10**6, 10**6]
     for p_i, paths_0_dict in enumerate(paths_0_dicts_all):
-        paths_0_stderr_dict = paths_0_stderr_dicts_all[p_i]
+        # paths_0_stderr_dict = paths_0_stderr_dicts_all[p_i]
         statistic_name = martingale[p_i]
         stat_validity = stat_validities[statistic_name]
-    
         plt.figure(figsize=(10, 8))
 
         # Plot dataset0 group with dashed lines
         for m_i, method in enumerate(methods):
             
-            if severity is not None:
-                plt.plot(paths_0_dicts_all[0][method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i}')
-                plt.plot(dataset1_paths_dict[method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i+1}')
-
-            else:
-                for i, path in enumerate(paths_0_dict[method]):
-                    martingale_stderrs = np.array(paths_0_stderr_dict[method][i])
-
-                    plt.plot(path, label=method_name_dict[method], linestyle='-', color=f'C{m_i}', linewidth=2)
-                    plt.fill_between(np.arange(len(path)), \
-                                     (path.to_numpy()-martingale_stderrs).flatten(), \
-                                     (path.to_numpy()+martingale_stderrs).flatten(), alpha=0.5, color=f'C{m_i}')
+            plt.plot(paths_0_dict[method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i}')
 
         plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Changepoint')
         plt.axhline(y=thresholds[p_i], color='red', linestyle='--', label='Alarm threshold', linewidth=3)
@@ -59,21 +46,40 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
         plt.yscale('log')  # Use logarithmic scale for the y-axis
         plt.xlabel(xlabel, fontsize=x_label_size)
         plt.ylabel(fr'Mean {statistic_name} Values {stat_formal[statistic_name]}', fontsize=y_label_size)
-        plt.title(f'{statistic_name} Paths \n ({stat_validity} Monitoring Criterion)', fontsize=title_size)
-        if (plot_image_data == 'mnist_cifar_'):
-            plt.title(f'{title}, {dataset0_shift_type} shift, \n {dataset0_name}, severity={severity}, n_seeds={n_seeds}, {cs_type} Scores', fontsize=title_size)
+        plt.title(f'Clean {statistic_name} Paths \n ({stat_validity} Monitoring Criterion)', fontsize=title_size)
 
         plt.legend(fontsize=legend_size)
         plt.grid(True, which="both", ls="--")
         plt.xticks(fontsize=x_tick_size)        
         plt.yticks(fontsize=y_tick_size)
-        
-        if (dataset0_shift_type == 'none'):
+        plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_{statistic_name}_clean_{setting}.pdf', bbox_inches='tight')
 
-            plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_{dataset0_name}_{statistic_name}.pdf', bbox_inches='tight')
-        else:
-            plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_{statistic_name}_{setting}.pdf', bbox_inches='tight')
-    
+    for p_i, paths_1_dict in enumerate(paths_1_dicts_all):
+        # paths_1_stderr_dict = paths_1_stderr_dicts_all[p_i]
+        statistic_name = martingale[p_i]
+        stat_validity = stat_validities[statistic_name]
+        plt.figure(figsize=(10, 8))
+
+        # Plot dataset0 group with dashed lines
+        for m_i, method in enumerate(methods):
+            
+            plt.plot(paths_1_dict[method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i}')
+            # plt.plot(dataset1_paths_dict[method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i+1}')
+
+        plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Changepoint')
+        plt.axhline(y=thresholds[p_i], color='red', linestyle='--', label='Alarm threshold', linewidth=3)
+
+        plt.yscale('log')  # Use logarithmic scale for the y-axis
+        plt.xlabel(xlabel, fontsize=x_label_size)
+        plt.ylabel(fr'Mean {statistic_name} Values {stat_formal[statistic_name]}', fontsize=y_label_size)
+        plt.title(f'Corrupted {statistic_name} Paths \n ({stat_validity} Monitoring Criterion)', fontsize=title_size)
+
+        plt.legend(fontsize=legend_size)
+        plt.grid(True, which="both", ls="--")
+        plt.xticks(fontsize=x_tick_size)        
+        plt.yticks(fontsize=y_tick_size)
+        plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_{statistic_name}_corrupted_{setting}.pdf', bbox_inches='tight')
+
 
 def plot_errors(errors_0_means_dict, errors_0_stderr_dict, 
                 errs_window, dataset0_name, change_point_index,

@@ -65,7 +65,7 @@ def shiryaev_roberts_procedure(S, c=10**4, verbose=False, return_alarm=False):
             sigma.append(sum(S[n] / S[i] for i in range(n)))
             if sigma[n - 1] >= c and verbose:
                 print(f"Alarm raised at observation {n} with sigma={sigma[n - 1]}")
-                return True, sigma
+                # return True, sigma
         return False, sigma
 #     sigma = []
 #     for n in range(1, len(S)):
@@ -133,20 +133,18 @@ def composite_jumper_martingale(p_values, threshold=100, verbose=False, return_a
         martingale_values.append(C)
         
 
-        if return_alarm:
-            if (C >= threshold and alarm_time is None):
-                elapsed_time_min = time.time() - start_time
-                alarm_time = i
-                if verbose:
-                    print(f"Alarm raised at observation {i} with martingale value={C}")
-                    # return True, np.array(martingale_values)
-
-        else:
-            if C >= threshold and verbose:
-                print(f"Alarm raised at observation {i} with martingale value={C}")
-#                 return True, np.array(martingale_values)
-
     if return_alarm:
+        if (C >= threshold and alarm_time is None):
+            elapsed_time_min = time.time() - start_time
+            alarm_time = i
+            if verbose:
+                print(f"Alarm raised at observation {i} with martingale value={C}")
+                # return True, np.array(martingale_values)
         return False, np.array(martingale_values), elapsed_time_min, alarm_time
+    
     else:
-        return False, np.array(martingale_values)
+        if C >= threshold and verbose:
+            print(f"Alarm raised at observation {i} with martingale value={C}")
+            return True, np.array(martingale_values)
+    
+    return False, np.array(martingale_values)
