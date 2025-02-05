@@ -131,6 +131,7 @@ def composite_jumper_martingale(p_values, threshold=100, verbose=False, return_a
 
         C = np.mean([C_minus1[J_i] + C_0[J_i] + C_1[J_i] for J_i in range(num_J)])
         martingale_values.append(C)
+        
 
         if return_alarm:
             if (C >= threshold and alarm_time is None):

@@ -120,16 +120,33 @@ def get_1dim_synthetic_v2_data(size=1000):
 def mean_func_synthetic_v3(x):
     return np.sin(x/20)+3/2*x/20
 
+# def get_1dim_synthetic_v3_data(size=20000):
+#     high=100 # 2*np.pi
+#     X = np.random.uniform(low=15, high=high, size=size)
+#     Y = np.zeros(size)
+#     for i in range(0, size):
+        
+#         Y[i] = np.random.normal(mean_func_synthetic_v3(X[i]), ((X[i]+20)/100)**2)
+
+#     return pd.DataFrame(np.c_[X, Y], columns=['X','Y'])
+
+
 def get_1dim_synthetic_v3_data(size=20000):
-    high=100 # 2*np.pi
-    X = np.random.uniform(low=15, high=high, size=size)
-    Y = np.zeros(size)
-    for i in range(0, size):
+#     high=100 # 2*np.pi
+#     X = np.random.uniform(low=15, high=high, size=size)
+    mu, sigma = 50, 20
+    mu2, sigma2 = 0, 20
+    X1 = np.abs(np.random.normal(mu, sigma, size=int(size/2)))
+    X2 = np.abs(np.random.normal(mu2, sigma2, size=int(size/2)))
+    X = np.concatenate([X1, X2])
+    X = X[np.where((X>=18) & (X<=90))[0]]
+    size_clipped = len(X)
+    Y = np.zeros(size_clipped)
+    for i in range(0, size_clipped):
         
         Y[i] = np.random.normal(mean_func_synthetic_v3(X[i]), ((X[i]+20)/100)**2)
 
     return pd.DataFrame(np.c_[X, Y], columns=['X','Y'])
-
 
 
 class NpyDataset(Dataset):
@@ -614,6 +631,13 @@ def get_w(x_pca, x, dataset, bias):
         x_sub = x[:,[0,1,2]] ## 0:=AGE53X (age), 1:= EDUCYR (yrs education), 2:= HIDEG (yrs education)
         x_sub = x_sub / np.max(x[:,[0,1,2]])
         return np.exp(x_sub @ [-bias,bias,bias])
+    
+    elif (dataset in ['meps_harmful']): #, 'meps't(
+        print("running with meps_harmful")
+        x_sub = x[:,0] ## 0:=AGE53X (age), 1:= EDUCYR (yrs education), 2:= HIDEG (yrs education)
+        x_sub = x_sub / np.max(x[:,0])
+        return np.exp(x_sub * bias)
+    
 # #         np.random.seed(5)
 #         pca = decomposition.PCA(n_components=2)
 #         pca.fit(x_pca)
@@ -918,6 +942,35 @@ def split_and_shift_dataset0(
         dataset0_test_0_idx = np.concatenate((dataset0_test_0_unshifted_idx, dataset0_test_0_biased_idx))
         
         return dataset0_train, dataset0_test_0.iloc[dataset0_test_0_idx]
+    
+    
+    elif (dataset0_shift_type == 'covariate_harmful'):
+        ## Covariate shift within dataset0
+        ## Note: Currently only for MEPS data
+        if (dataset0_name == 'meps'):
+            dataset0_name = 'meps_harmful'
+        
+        dataset0_train_copy = dataset0_train.copy()
+        X_train = dataset0_train_copy.iloc[:, :-1].values
+        dataset0_test_0_post_change = dataset0_test_0_post_change.copy()
+        X_test_0 = dataset0_test_0_post_change.iloc[:, :-1].values
+        
+        ## Get indices of biased test samples post changepoint (indices relative to dataset0_test_0 by adding num_test_unshifted)
+        dataset0_test_0_biased_idx = num_test_unshifted + exponential_tilting_indices(x_pca=X_train, x=X_test_0, dataset=dataset0_name, bias=cov_shift_bias)
+        
+        dataset0_train_0_biased_idx = exponential_tilting_indices(x_pca=X_train, x=X_train, dataset=dataset0_name, bias=-cov_shift_bias)
+        
+        print("len(ataset0_train_copy)", len(dataset0_train_copy))
+        print("maxdataset0_train_0_biased_idx", max(dataset0_train_0_biased_idx))
+        
+        dataset0_train_0_source_idx = dataset0_train_0_biased_idx[:-num_test_unshifted] ## all except las num_test_unshifted
+        dataset0_test_0_source_idx = dataset0_train_0_biased_idx[-num_test_unshifted:] ## last num_test_unshifted
+
+        dataset0_train = dataset0_train_copy.iloc[dataset0_train_0_source_idx]
+        
+#         dataset0_test_0_idx = np.concatenate((dataset0_test_0_source_idx[-num_test_unshifted:], dataset0_test_0_biased_idx))
+        
+        return dataset0_train, pd.concat([dataset0_train_copy.iloc[dataset0_test_0_source_idx], dataset0_test_0.iloc[dataset0_test_0_biased_idx]])
     
     
     elif (dataset0_shift_type == 'label'):

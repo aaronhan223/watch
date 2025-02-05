@@ -103,8 +103,8 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
 
         plt.legend(fontsize=legend_size)
         plt.grid(True, which="both", ls="--")
-        plt.xticks(fontsize=x_tick_size)        
-        plt.yticks(fontsize=y_tick_size)
+#         plt.xticks(fontsize=x_tick_size)        
+#         plt.yticks(fontsize=y_tick_size)
         
         if (dataset0_shift_type == 'none'):
 
@@ -205,8 +205,8 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
 
         plt.legend(fontsize=legend_size)
         plt.grid(True, which="both", ls="--")
-        plt.xticks(fontsize=x_tick_size)        
-        plt.yticks(fontsize=y_tick_size)     
+#         plt.xticks(fontsize=x_tick_size)        
+#         plt.yticks(fontsize=y_tick_size)     
         
         if (dataset0_shift_type == 'none'):
             plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_{dataset0_name}_AbsoluteErrors.pdf', bbox_inches='tight')
@@ -228,7 +228,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
                                  (coverage+np.array(coverage_0_stderr_dict[method][i])).flatten(), alpha=0.5,\
                              color=f'C{m_i}')
     plt.axhline(y=0.9, color='k', linestyle='--', linewidth=3, label='Target coverage')
-    plt.ylim([0.85, 1.0])
+#     plt.ylim([0.85, 1.0])
     plt.yticks(np.arange(0.85, 1.01, 0.05))
 
     
@@ -240,8 +240,8 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
     # plt.axvline(x=change_point_index-num_test_unshifted, color='gray', linestyle=':', linewidth=3, label='Deployment time')
     plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Changepoint')
     plt.xlabel(xlabel, fontsize=x_label_size)
-    plt.xticks(fontsize=x_tick_size)        
-    plt.yticks(fontsize=y_tick_size) 
+#     plt.xticks(fontsize=x_tick_size)        
+#     plt.yticks(fontsize=y_tick_size) 
     plt.grid(True, which="both", ls="--")
     plt.legend(fontsize=legend_size)
     plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_coverage_{setting}.pdf', bbox_inches='tight')

@@ -306,6 +306,7 @@ def calculate_weighted_p_values_and_quantiles(args, conformity_scores, W_i, adap
     adapt_start : Index of first point that is assumed part of test distribution rather than cal. If method != 'fixed_cal_dyn', 
                   then  adapt_start==n_cal
     """
+    print("calculating weighted p-values")
     n = len(conformity_scores)
     wp_values = np.zeros(n) ## p-values calculated with weighted conformity scores
     wq_lower = np.zeros(n) ## lower weighted quantiles
@@ -387,7 +388,7 @@ def calculate_weighted_p_values_and_quantiles(args, conformity_scores, W_i, adap
                             np.random.uniform() * np.sum(normalized_weights_t[conformity_scores_t == conformity_scores_t[-1]])
             else:
                 ## Else: over (relative) weight 'alpha' put on test pt score, compute conservative (and deterministic) p-values:
-                print("Using conservative p-values : ", t_)
+#                 print("Using conservative p-values : ", t_)
                 wp_values[adapt_start+t_] = np.sum(normalized_weights_t[conformity_scores_t < conformity_scores_t[-1]])
 
     elif (method in ['one_step_oracle', 'one_step_est', 'batch_oracle', 'multistep_oracle']):

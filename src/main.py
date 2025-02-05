@@ -97,16 +97,16 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             
 #             print("x_ctm_thresh : ", x_ctm_thresh)
 
-            
+            print("dataset0_name : ", dataset0_name)
             ## Distance from centroid conformity score:
 #             centroid_train = np.mean(X_train, axis=0)
 #             distances = (X_cal_test_0 - centroid_train).sum(axis=1)**2
             if (dataset0_name == '1dim_synthetic_v3'):
-                
-                max_train = np.max(X_train, axis=0)
-                distances = (X_cal_test_0 - max_train).sum(axis=1)**2
+                ## On synthetic data, used signed distances
+                med_train = np.mean(X_train, axis=0)
+                distances = X_cal_test_0 - med_train
             else:
-                
+                print("NN scores")
                 ## NN distance conformity score
                 nbrs = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(X_train)
                 distances, _ = nbrs.kneighbors(X_cal_test_0)                
@@ -115,17 +115,44 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             p_values = calculate_p_values(X_conformity_scores_0)
             
             ## Run martingale on test pt p-values, ie on p_values[n_cal:]
-            _, martingale_value_test, _, _ = composite_jumper_martingale(p_values[(n_cal):], return_alarm=True) 
-            _, sigma_test, _, _ = shiryaev_roberts_procedure(martingale_value_test, x_sched_thresh, return_alarm=True)
+            _, martingale_value_test, _, m_alarm_time = composite_jumper_martingale(p_values[(n_cal):], return_alarm=True) 
+            _, sigma_test, _, sr_alarm_time = shiryaev_roberts_procedure(martingale_value_test, x_sched_thresh, return_alarm=True)
             
             ## Save X-CTM and X-CTM SR stat paths
             xctm_paths_0.append(martingale_value_test)
             xctm_sr_paths_0.append(sigma_test)
             
-            ## Test point index where X-CTM first exceeds x_ctm_thresh*sigma[n_cal-1]
-            x_alarm_idx = n_cal + np.argmax(np.bitwise_or(sigma_test>=x_sched_thresh, martingale_value_test>=x_ctm_thresh)) if (np.max(sigma_test)>=x_sched_thresh or np.max(martingale_value_test)>=x_ctm_thresh) else len(X_cal_test_0-1) 
+            if (dataset0_name == '1dim_synthetic_v3'):
+                ## Test point index where X-CTM or SR-XCTM first exceeds x_ctm_thresh*sigma[n_cal-1]
+#                 x_alarm_idx = n_cal + np.argmax(np.bitwise_or(sigma_test>=x_sched_thresh, martingale_value_test>=x_ctm_thresh)) if (np.max(martingale_value_test)>=x_ctm_thresh) else len(X_cal_test_0) -1
+                if (m_alarm_time is not None):
+                    x_alarm_idx = n_cal + m_alarm_time
+                else:
+                    x_alarm_idx = len(X_cal_test_0)-1
+                    
+            else:
+                ## Anytime-valid (X-CTM) covariate-shift monitoring criterion
+                if (m_alarm_time is not None):
+                    x_alarm_idx = n_cal + m_alarm_time
+                else:
+                    m_alarm_time = len(X_cal_test_0)-1
+                    
+                ## Scheduled (Shiryaev-Roberts) covariate-shift monitoring criterion
+                if (sr_alarm_time is not None and sr_alarm_time < m_alarm_time):
+                    x_alarm_idx = n_cal + sr_alarm_time
+                else:
+                    x_alarm_idx = len(X_cal_test_0)-1
+                    
+                ## Test point index where X-CTM or SR-XCTM first exceeds x_ctm_thresh*sigma[n_cal-1]
+#                 x_alarm_idx = n_cal + np.argmax(np.bitwise_or(sigma_test>=x_sched_thresh, martingale_value_test>=x_ctm_thresh)) if (np.max(sigma_test)>=x_sched_thresh or np.max(martingale_value_test)>=x_ctm_thresh) else len(X_cal_test_0) -1
             
-            print("test pt alarm : ", x_alarm_idx - n_cal)
+            
+            
+#             if (m_alarm_time is not None or sr_alarm_time is not None):
+                
+#                 x_alarm_idx = n_cal + min(m_alarm_time, sr_alarm_time)
+            
+            print("Adapt test pt idx : ", x_alarm_idx - n_cal)
 
             adapt_starts.append(x_alarm_idx) ## Update where to start adaptation
             
