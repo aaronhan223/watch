@@ -133,18 +133,20 @@ def composite_jumper_martingale(p_values, threshold=100, verbose=False, return_a
         martingale_values.append(C)
         
 
-    if return_alarm:
-        if (C >= threshold and alarm_time is None):
-            elapsed_time_min = time.time() - start_time
-            alarm_time = i
-            if verbose:
+        if return_alarm:
+            if (C >= threshold and alarm_time is None):
+                elapsed_time_min = time.time() - start_time
+                alarm_time = i
+                if verbose:
+                    print(f"Alarm raised at observation {i} with martingale value={C}")
+                    # return True, np.array(martingale_values)
+        else:
+            if C >= threshold and verbose:
                 print(f"Alarm raised at observation {i} with martingale value={C}")
-                # return True, np.array(martingale_values)
+                return True, np.array(martingale_values)
+            
+    if return_alarm:
         return False, np.array(martingale_values), elapsed_time_min, alarm_time
     
     else:
-        if C >= threshold and verbose:
-            print(f"Alarm raised at observation {i} with martingale value={C}")
-            return True, np.array(martingale_values)
-    
-    return False, np.array(martingale_values)
+        return False, np.array(martingale_values)
