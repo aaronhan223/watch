@@ -37,7 +37,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
     if (dataset0_name in ['mnist', 'cifar10']):
         plot_image_data = 'mnist_cifar_'
     
-    method_name_dict = {'fixed_cal_dyn' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
+    method_name_dict = {'resample_cal_oracle' : 'WCTM (proposed)', 'fixed_cal_oracle' : 'WCTM (proposed)', 'fixed_cal_dyn' : 'WCTM (proposed)', 'fixed_cal' : 'WCTM (proposed)', 'none' : 'CTM (Vovk et al., 2021)'}
     stat_validities = {'CUSUM' : 'Fixed Schedule', 'Shiryaev-Roberts' : 'Variable Schedule', 'Martingale' : 'Anytime-Valid'}
     stat_formal = {'CUSUM' : '($\max_{i=0, ..., t-1} M_t / M_i$)', 'Shiryaev-Roberts' : '($\sum_{i=0}^{t-1} M_t / M_i$)', 'Martingale' : '($M_t / M_0$)'}
 
@@ -311,10 +311,10 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, datas
     # ax[1].yaxis.set_major_formatter(mtick.FormatStrFormatter('%.0e'))
     
     for m_i, method in enumerate(methods):
-        ax[0].hist(p_vals_pre_change_dict[method], label=method_name_dict[method], color=f'C{m_i}', alpha=0.5) #row=0, col=0
+        ax[0].hist(p_vals_pre_change_dict[method], label=method_name_dict[method], color=f'C{m_i}', alpha=0.5, bins=30) #row=0, col=0
         ax[0].set_title('Before Changepoint', fontsize=x_label_size)
 
-        ax[1].hist(p_vals_post_change_dict[method], label=method_name_dict[method], color=f'C{m_i}', alpha=0.5) #row=1, col=0
+        ax[1].hist(p_vals_post_change_dict[method], label=method_name_dict[method], color=f'C{m_i}', alpha=0.5, bins=30) #row=1, col=0
         ax[1].set_title('After Changepoint', fontsize=x_label_size)
     
     ax[0].tick_params(axis='both', which='major', labelsize=x_tick_size)

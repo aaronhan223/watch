@@ -102,9 +102,13 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
 #             centroid_train = np.mean(X_train, axis=0)
 #             distances = (X_cal_test_0 - centroid_train).sum(axis=1)**2
             if (dataset0_name == '1dim_synthetic_v3'):
-                ## On synthetic data, used signed distances
-                med_train = np.mean(X_train, axis=0)
-                distances = X_cal_test_0 - med_train
+#                 ## On synthetic data, use distance from centroid
+                mean_train = np.mean(X_train, axis=0)
+#                 print("mean X : ", mean_train)
+#                 distances = (X_cal_test_0 - mean_train)**2
+                distances = X_cal_test_0 - mean_train
+#                 centroid_train = np.mean(X_train, axis=0)
+#                 distances = (X_cal_test_0 - centroid_train).sum(axis=1)**2
             else:
                 print("NN scores")
                 ## NN distance conformity score
@@ -136,7 +140,7 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
                     x_alarm_idx = n_cal + m_alarm_time
                 else:
                     m_alarm_time = len(X_cal_test_0)-1
-                    
+
                 ## Scheduled (Shiryaev-Roberts) covariate-shift monitoring criterion
                 if (sr_alarm_time is not None and sr_alarm_time < m_alarm_time):
                     x_alarm_idx = n_cal + sr_alarm_time
@@ -147,11 +151,13 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
 #                 x_alarm_idx = n_cal + np.argmax(np.bitwise_or(sigma_test>=x_sched_thresh, martingale_value_test>=x_ctm_thresh)) if (np.max(sigma_test)>=x_sched_thresh or np.max(martingale_value_test)>=x_ctm_thresh) else len(X_cal_test_0) -1
             
             
-            
 #             if (m_alarm_time is not None or sr_alarm_time is not None):
                 
 #                 x_alarm_idx = n_cal + min(m_alarm_time, sr_alarm_time)
-            
+            print("n_cal : ", n_cal)
+            print("m_alarm_idx : ", m_alarm_time)
+            print("sr_alarm_idx : ", sr_alarm_time)
+            print("x_alarm_idx : ", x_alarm_idx)
             print("Adapt test pt idx : ", x_alarm_idx - n_cal)
 
             adapt_starts.append(x_alarm_idx) ## Update where to start adaptation
@@ -159,7 +165,7 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
                         
         else:
             ## Default is to begin adaption immediately after calibration set, ie n_cal
-            adapt_starts.append(n_cal)
+            adapt_starts.append(n_cal + num_test_unshifted)
          
                    
 
@@ -211,7 +217,11 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             
             
         #### Computing (unnormalized) weights
+        
+        cs_resampled_cal_list = [] ## Debugging 20250304
+        
         for method in methods:
+            
             
             ## Online logistic regression for weight estimation
             W_i = [] ## List of weight est. arrays, each t-th array is length (n+t)
@@ -231,7 +241,7 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
 #                 W_i = offline_lik_ratio_estimates(X_cal, X_test_w_est, X_cal_test_0)
                 W_i = offline_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only)
 
-            elif (method in ['fixed_cal_oracle','one_step_oracle', 'batch_oracle', 'multistep_oracle']):
+            elif (method in ['fixed_cal_oracle','one_step_oracle', 'batch_oracle', 'multistep_oracle', 'resample_cal_oracle']):
     #             print("getting oracle lik ratios")
                 ## Oracle one-step likelihood ratios
                 ## np.shape(W_i) = (n_cal + T, )
@@ -248,28 +258,82 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
                 if (method == 'multistep_oracle'):
                     W_i = np.tile(W_i, (len(X_cal_test_0) - n_cal, 1))
                     
+                ## Debugging March 4, 2025
+                if (method == 'resample_cal_oracle'):
+                    adapt_start = adapt_starts[i]
+                    T = len(X_test_0_only) - num_test_unshifted ## T := num test points after begin adaptation
+                    
+                    W_i = np.zeros((T, adapt_start + T))
+                    
+                    ## For t in [number of post-changepoint test points]
+                    for t in range(T):
+#                         print("n_cal : ", n_cal)
+                        cal_resampled = get_1dim_synthetic_v3_data(size=adapt_start)
+                        
+#                         print("len(cal_resampled) : ", len(cal_resampled))
+#                         print("cal_resampled shape : ", np.shape(cal_resampled))
+#                         print(" cal_resampled : ", cal_resampled[0:5])
+                        X_cal_, y_cal_ = cal_resampled.iloc[:,:-1], cal_resampled.iloc[:,-1]
+#                         X_cal_numpy = X_cal_.to_numpy().flatten()
+                        X_cal_test_curr = np.concatenate((X_cal_, [X_test_0_only[num_test_unshifted + t]]))
+                        w_cal_test = get_w(x_pca=X_train, x=X_cal_test_curr, dataset=dataset0_name, bias=cov_shift_bias)
+                        W_i[t, :adapt_start] =  w_cal_test[:adapt_start]
+#                         print(f'W_i[t,:] shape : {np.shape(W_i[t,:])}')
+#                         print(f'adapt_start : {adapt_start}')
+#                         print(f'adapt_start+t : {adapt_start+t}')
+#                         print(f'w_cal_test len : {len(w_cal_test)}')
+                        W_i[t, adapt_start+t] =  w_cal_test[-1]
+#                         cs_resampled_cal_list.append(X_cal_)
+                        
+    
+                        ## Calculate scores
+                        y_cal_test_0 = np.concatenate((y_cal_, [y_test_0_only[num_test_unshifted + t]]), axis=0)
+                        y_pred_0 = model.predict(X_cal_test_curr)
+                        
+                        if (cs_type == 'signed'):
+                            cs_resampled_cal_list.append(y_cal_test_0 - y_pred_0)
+
+                        elif (cs_type == 'abs'):
+                            cs_resampled_cal_list.append(np.abs(y_cal_test_0 - y_pred_0))
+#                             print("conformity_scores_0 shape : ", np.shape(conformity_scores_0))
+                        elif (cs_type == 'nn_dist'):
+                            ## CS is nearest neighbor distance
+                            nbrs = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(X_train)
+                            distances, _ = nbrs.kneighbors(X_cal_test_0)
+                            cs_resampled_cal_list.append(distances.flatten())
+                            
+#                         print("len cs_resampled_cal_list : ", len(cs_resampled_cal_list))
+                        
+                    
             else:
                 ## Else: Unweighted / uniform-weighted CTM
                 W_i = np.ones(len(X_cal_test_0))
 
             W_dict[method].append(W_i)
             
-                
-    return cs_0, cs_1, W_dict, adapt_starts, n_cals, errors_0, xctm_paths_0, xctm_sr_paths_0
+#     print("len cs_resampled_cal_list : ", len(cs_resampled_cal_list))
+    
+    return cs_0, cs_1, W_dict, adapt_starts, n_cals, errors_0, xctm_paths_0, xctm_sr_paths_0, cs_resampled_cal_list
+    
 
 
 def retrain_count(args, conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, adapt_start, n_cal, alpha=0.1,\
-                  cs_type='abs',verbose=False, method='fixed_cal_oracle', depth=1, init_ctm_on_cal_set=True):
+                  cs_type='abs',verbose=False, method='fixed_cal_oracle', depth=1, init_ctm_on_cal_set=True, \
+                  cs_resampled_cal_list = None):
     
-    if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline', 'fixed_cal_dyn']):
+    if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline', 'fixed_cal_dyn', 'resample_cal_oracle']):
 #         print("adapt_start : ", adapt_start)
-        p_values, q_lower, q_upper = calculate_weighted_p_values_and_quantiles(args, conformity_score, W_i, adapt_start, method)
+
+        p_values, q_lower, q_upper = calculate_weighted_p_values_and_quantiles(args, conformity_score, W_i, adapt_start, method, cs_resampled_cal_list= cs_resampled_cal_list, num_test_unshifted = num_test_unshifted)
+        
         
         
     else:
         p_values, q_lower, q_upper = calculate_p_values_and_quantiles(conformity_score, alpha, cs_type)
         
     print("init_ctm_on_cal_set : ", init_ctm_on_cal_set)
+    
+    print(f'{method} p vals : {p_values[20:30]}')
         
     if (init_ctm_on_cal_set):
         ## Initialize CTM on calibration set, as in Vovk et al. 2021
@@ -347,9 +411,10 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
    
 
 
-    cs_0, cs_1, W_dict, adapt_starts, n_cals, errors_0, xctm_paths_0, xctm_sr_paths_0 = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed, cs_type=cs_type, methods=methods, dataset0_name=dataset0_name, cov_shift_bias=cov_shift_bias, init_phase=init_phase, x_ctm_thresh=x_ctm_thresh, x_sched_thresh=x_sched_thresh)
+    cs_0, cs_1, W_dict, adapt_starts, n_cals, errors_0, xctm_paths_0, xctm_sr_paths_0, cs_resampled_cal_list = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed, cs_type=cs_type, methods=methods, dataset0_name=dataset0_name, cov_shift_bias=cov_shift_bias, init_phase=init_phase, x_ctm_thresh=x_ctm_thresh, x_sched_thresh=x_sched_thresh)
     
-    
+#     for method in methods:
+#         print(f'{method} W_i : ', W_dict[method])
     
     martingales_0_dict, martingales_1_dict = {}, {}
     sigmas_0_dict, sigmas_1_dict = {}, {}
@@ -422,15 +487,21 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
         for method in methods:
 #             print("n_cal : ", n_cal)
 #             print("len W_dict[method][i] : ", len(W_dict[method][i]))
+            print("len cs_resampled_cal_list ", len(cs_resampled_cal_list))
             
-            if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline', 'fixed_cal_dyn']):
-                m_0, s_0, martingale_value_0, sigma_0, cusum_0, p_vals, q_lower, q_upper, martingale_runtime, sigma_runtime, cusum_runtime, martingale_alarm, sigma_alarm, cusum_alarm = retrain_count(args, score_0, training_schedule, sr_threshold, cu_confidence, W_dict[method][i], adapt_starts[i], n_cal, alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set)
+            if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline', 'fixed_cal_dyn', 'resample_cal_oracle']):
+                m_0, s_0, martingale_value_0, sigma_0, cusum_0, p_vals, q_lower, q_upper, martingale_runtime, sigma_runtime, cusum_runtime, martingale_alarm, sigma_alarm, cusum_alarm = retrain_count(args, score_0, training_schedule, sr_threshold, cu_confidence, W_dict[method][i], adapt_starts[i], n_cal, alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set, cs_resampled_cal_list = cs_resampled_cal_list)
+                
+                
                 
             else:
                 ## Run baseline with uniform weights
-                m_0, s_0, martingale_value_0, sigma_0, cusum_0, p_vals, q_lower, q_upper, martingale_runtime, sigma_runtime, cusum_runtime, martingale_alarm, sigma_alarm, cusum_alarm = retrain_count(args, score_0, training_schedule, sr_threshold, cu_confidence, None, adapt_starts[i], n_cal, alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set)
+                m_0, s_0, martingale_value_0, sigma_0, cusum_0, p_vals, q_lower, q_upper, martingale_runtime, sigma_runtime, cusum_runtime, martingale_alarm, sigma_alarm, cusum_alarm = retrain_count(args, score_0, training_schedule, sr_threshold, cu_confidence, None, adapt_starts[i], n_cal, alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set, cs_resampled_cal_list = cs_resampled_cal_list)
                             
-
+            
+            print(f'{method} p-values : {p_vals[20:30]}')
+            print(f'{method} martingale_value_0 : {martingale_value_0[20:30]}')
+            
             if m_0:
                 retrain_m_count_0_dict[method] += 1
             if s_0:
@@ -573,6 +644,10 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
             cs_0[i] = cs_0[i][n_cal:]
             errors_0[i] = errors_0[i][n_cal:] 
     
+    print("n_cal : ", n_cal)
+    print("adapt_starts : ", adapt_starts)
+    print("len p_vals   : ", len(p_vals))
+
     ## Note: 
     for i, score_1 in enumerate(cs_1):
         for method in methods:
@@ -979,7 +1054,7 @@ if __name__ == "__main__":
         if run_PR_CD:
             alarm_df_all.to_csv(f'../results/{date.today()}_Alarms_{setting}_SR_CD{PR_CD_setting}v5.csv')
         else:
-            alarm_df_all.to_csv(f'../results/{date.today()}_Alarms_{setting}_v4.csv')
+            alarm_df_all.to_csv(f'../results/{date.today()}_Alarms_{setting}_v5.csv')
 
         if run_PR_ST:
             PR_ST_results_all.to_csv(f'../results/{date.today()}_{setting}_PR_ST-{PR_ST_setting}_v5.csv')
