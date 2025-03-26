@@ -33,7 +33,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
         # paths_0_stderr_dict = paths_0_stderr_dicts_all[p_i]
         statistic_name = martingale[p_i]
         stat_validity = stat_validities[statistic_name]
-        plt.figure(figsize=(10, 8))
+        plt.figure(figsize=(10, 5))
 
         # Plot dataset0 group with dashed lines
         for m_i, method in enumerate(methods):
@@ -45,8 +45,8 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
 
         plt.yscale('log')  # Use logarithmic scale for the y-axis
         plt.xlabel(xlabel, fontsize=x_label_size)
-        plt.ylabel(fr'Mean {statistic_name} Values {stat_formal[statistic_name]}', fontsize=y_label_size)
-        plt.title(f'Clean {statistic_name} Paths \n ({stat_validity} Monitoring Criterion)', fontsize=title_size)
+        plt.ylabel(fr'{statistic_name} Value {stat_formal[statistic_name]}', fontsize=y_label_size)
+        plt.title(f'Minor Benign Corruption \n ({stat_validity} Monitoring Criterion)', fontsize=title_size)
 
         plt.legend(fontsize=legend_size)
         plt.grid(True, which="both", ls="--")
@@ -58,7 +58,7 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
         # paths_1_stderr_dict = paths_1_stderr_dicts_all[p_i]
         statistic_name = martingale[p_i]
         stat_validity = stat_validities[statistic_name]
-        plt.figure(figsize=(10, 8))
+        plt.figure(figsize=(10, 5))
 
         # Plot dataset0 group with dashed lines
         for m_i, method in enumerate(methods):
@@ -71,8 +71,8 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
 
         plt.yscale('log')  # Use logarithmic scale for the y-axis
         plt.xlabel(xlabel, fontsize=x_label_size)
-        plt.ylabel(fr'Mean {statistic_name} Values {stat_formal[statistic_name]}', fontsize=y_label_size)
-        plt.title(f'Corrupted {statistic_name} Paths \n ({stat_validity} Monitoring Criterion)', fontsize=title_size)
+        plt.ylabel(fr'{statistic_name} Value {stat_formal[statistic_name]}', fontsize=y_label_size)
+        plt.title(f'Minor Benign Corruption \n ({stat_validity} Monitoring Criterion)', fontsize=title_size)
 
         plt.legend(fontsize=legend_size)
         plt.grid(True, which="both", ls="--")
