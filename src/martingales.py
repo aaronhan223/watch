@@ -35,9 +35,9 @@ def cusum_procedure(S, threshold=10**4, verbose=False, return_alarm=False):
                 print(f"Alarm raised at observation {n} with gamma={gamma[n]}")
             # return True, gamma
     if return_alarm:
-        return False, gamma, elapsed_time_min, alarm_time
+        return False, np.nan_to_num(gamma, nan=np.inf), elapsed_time_min, alarm_time
     else:
-        return False, gamma
+        return False, np.nan_to_num(gamma, nan=np.inf)
 
 
 def shiryaev_roberts_procedure(S, c=10**4, verbose=False, return_alarm=False):
@@ -57,7 +57,7 @@ def shiryaev_roberts_procedure(S, c=10**4, verbose=False, return_alarm=False):
                 if verbose:
                     print(f"Alarm raised at observation {n} with sigma={sigma[n]}")
                 # return True, sigma
-        return False, sigma, elapsed_time_min, alarm_time
+        return False, np.nan_to_num(sigma, nan=np.inf), elapsed_time_min, alarm_time
 
     else:
         sigma = []
@@ -66,7 +66,7 @@ def shiryaev_roberts_procedure(S, c=10**4, verbose=False, return_alarm=False):
             if sigma[n - 1] >= c and verbose:
                 print(f"Alarm raised at observation {n} with sigma={sigma[n - 1]}")
                 # return True, sigma
-        return False, sigma
+        return False, np.nan_to_num(sigma, nan=np.inf)
 #     sigma = []
 #     for n in range(1, len(S)):
 #         sigma.append(sum(S[n] / S[i] for i in range(n)))
@@ -100,7 +100,7 @@ def simple_jumper_martingale(p_values, J=0.01, threshold=100, verbose=False):
             print(f"Alarm raised at observation {i} with martingale value={C}")
             # return True, np.array(martingale_values)
     
-    return False, np.array(martingale_values)
+    return False, np.nan_to_num(martingale_values, nan=np.inf)
 
 
 def composite_jumper_martingale(p_values, threshold=100, verbose=False, return_alarm=False):
@@ -143,10 +143,10 @@ def composite_jumper_martingale(p_values, threshold=100, verbose=False, return_a
         else:
             if C >= threshold and verbose:
                 print(f"Alarm raised at observation {i} with martingale value={C}")
-                return True, np.array(martingale_values)
+                return True, np.nan_to_num(martingale_values, nan=np.inf)
             
     if return_alarm:
-        return False, np.array(martingale_values), elapsed_time_min, alarm_time
+        return False, np.nan_to_num(martingale_values, nan=np.inf), elapsed_time_min, alarm_time
     
     else:
-        return False, np.array(martingale_values)
+        return False, np.nan_to_num(martingale_values, nan=np.inf)

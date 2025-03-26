@@ -118,34 +118,244 @@ def get_1dim_synthetic_v2_data(size=1000):
 
     return pd.DataFrame(np.c_[X, Y])
 
-def mean_func_synthetic_v3(x):
-    return np.sin(x/20)+3/2*x/20
+# def mean_func_synthetic_v3(x): 
+# #     return np.sin(x/12)+x*3/40+0.5
+#     return (x)**2 / 1650 + 1
+
+
+# # def get_1dim_synthetic_v3_data(size=20000):
+# #     high=100 # 2*np.pi
+# #     X = np.random.uniform(low=15, high=high, size=size)
+# #     Y = np.zeros(size)
+# #     for i in range(0, size):
+        
+# #         Y[i] = np.random.normal(mean_func_synthetic_v3(X[i]), ((X[i]+20)/100)**2)
+
+# #     return pd.DataFrame(np.c_[X, Y], columns=['X','Y'])
+
 
 # def get_1dim_synthetic_v3_data(size=20000):
-#     high=100 # 2*np.pi
-#     X = np.random.uniform(low=15, high=high, size=size)
-#     Y = np.zeros(size)
-#     for i in range(0, size):
+# #     high=100 # 2*np.pi
+# #     X = np.random.uniform(low=15, high=high, size=size)
+#     mu, sigma = 45, 20
+#     mu2, sigma2 = 10, 20
+#     X1 = np.abs(np.random.normal(mu, sigma, size=int(size*3/5)))
+#     X2 = np.abs(np.random.normal(mu2, sigma2, size=int(size*2/5)))
+#     X = np.concatenate([X1, X2])
+# #     X = X[np.where((X>=18) & (X<=90))[0]]
+#     X = X[np.where(X<=85)[0]]
+#     size_clipped = len(X)
+#     Y = np.zeros(size_clipped)
+#     for i in range(0, size_clipped):
         
-#         Y[i] = np.random.normal(mean_func_synthetic_v3(X[i]), ((X[i]+20)/100)**2)
+#         Y[i] = np.random.normal(mean_func_synthetic_v3(X[i]), (X[i]/60)**2 + 0.2)
+        
+#     Y = np.where(Y<0.7, 0.7, Y) ## Min value Y is 0.1
+#     Y = np.where(Y>9.7, 9.7, Y) ## Max value Y is 10
+
+#     return pd.DataFrame(np.c_[X, Y], columns=['X','Y'])
+
+# def mean_func_synthetic_v3(x): 
+# #     return np.sin(x/12)+x*3/40+0.5
+#     return ((x-22)/25)**2 + 1
+
+
+
+# def get_1dim_synthetic_v3_data(size=20000):
+# #     high=100 # 2*np.pi
+# #     X = np.random.uniform(low=15, high=high, size=size)
+#     mu, sigma = 45, 20
+#     mu2, sigma2 = 10, 20
+#     X1 = np.abs(np.random.normal(mu, sigma, size=int(size*3/5)))
+#     X2 = np.abs(np.random.normal(mu2, sigma2, size=int(size*2/5)))
+#     X = np.concatenate([X1, X2])
+# #     X = X[np.where((X>=18) & (X<=90))[0]]
+#     X = X[np.where(X<=85)[0]]
+#     size_clipped = len(X)
+#     Y = np.zeros(size_clipped)
+    
+            
+#     for i in range(0, size_clipped):
+        
+#         Y[i] = np.random.normal(mean_func_synthetic_v3(X[i]), ((X[i]-22)/50)**2 + 0.2)
+        
+        
+#     Y = np.where(Y<0.25, 0.25, Y) ## Min value Y is 0.1
+#     Y = np.where(Y>9.7, 9.7, Y) ## Max value Y is 10
+    
+
+#     return pd.DataFrame(np.c_[X, Y], columns=['X','Y'])
+
+# def mean_func_synthetic_v3(x): 
+# #     return np.sin(x/12)+x*3/40+0.5
+#     return ((x-25)/25)**2 + 1
+
+
+
+# def get_1dim_synthetic_v3_data(size=20000):
+# # def get_1dim_synthetic_v3_data(size=14000):
+
+# #     high=100 # 2*np.pi
+# #     X = np.random.uniform(low=15, high=high, size=size)
+# #     mu, sigma = 35, 20
+# #     mu2, sigma2 = 8, 20
+
+#     ## Simulate mildly bimodal age distribution for X
+# #     mu, sigma = 45, 15
+# #     mu2, sigma2 = 10, 20
+#     mu, sigma = 40, 15
+#     mu2, sigma2 = 10, 15
+
+#     ## Note: Factor of 2 at beginning is to have enough to still have desired size even after removing values greater than 85
+#     X1 = np.abs(np.random.normal(mu, sigma, size=int(size*3/5))) 
+#     X2 = np.abs(np.random.normal(mu2, sigma2, size=int(size*2/5)))
+#     X = np.concatenate([X1, X2])
+# #     X = X[np.where((X>=18) & (X<=90))[0]]
+#     X = X[np.where(X<=85)[0]]
+# #     X = X[:size]
+#     size_clipped = len(X)
+#     Y = np.zeros(size_clipped)
+    
+            
+#     for i in range(0, size_clipped):
+        
+#         Y[i] = np.random.normal(mean_func_synthetic_v3(X[i]), ((X[i]-25)/40)**4 + 0.1)
+        
+#         ## Simulate increased risk in children age <= 12
+# #         if (X[i] <= 12):
+# #             max_uptick_magnitude = ((12 - X[i])/12)**2 * 2
+# #             Y[i] += np.random.uniform(low=0.25, high=max_uptick_magnitude) + np.random.normal(scale=0.1)
+        
+#     Y = np.where(Y<0.75, 0.75, Y) ## Min value Y is 0.1
+#     Y = np.where(Y>9.7, 9.7, Y) ## Max value Y is 10
+    
 
 #     return pd.DataFrame(np.c_[X, Y], columns=['X','Y'])
 
 
-def get_1dim_synthetic_v3_data(size=20000):
+
+
+# def mean_func_synthetic_v3(x): 
+# #     return np.sin(x/12)+x*3/40+0.5
+#     if (x <= 25):
+#         return ((x-25)/50)**2 + 1
+#     else:
+#         return ((x-25)/25)**2 + 1
+
+
+
+# def get_1dim_synthetic_v3_data(size=20000):
+# #     high=100 # 2*np.pi
+# #     X = np.random.uniform(low=15, high=high, size=size)
+# #     mu, sigma = 35, 20
+# #     mu2, sigma2 = 8, 20
+
+#     ## Simulate mildly bimodal age distribution for X
+#     mu, sigma = 50, 10
+#     mu2, sigma2 = 12, 15
+# #     mu, sigma = 40, 20
+# #     mu2, sigma2 = 10, 20
+#     X1 = np.abs(np.random.normal(mu, sigma, size=int(2*size*3/4)))
+#     X2 = np.abs(np.random.normal(mu2, sigma2, size=int(2*size/4)))
+#     X = np.concatenate([X1, X2])
+# #     X = X[np.where((X>=18) & (X<=90))[0]]
+#     X = X[np.where(X<=85)[0]]
+#     X = np.random.choice(X, size)
+#     size_clipped = len(X)
+#     Y = np.zeros(size_clipped)
+    
+            
+#     for i in range(0, size_clipped):
+#         Y[i] = np.random.normal(mean_func_synthetic_v3(X[i]), ((X[i]-25)/40)**2 + 0.05)
+        
+#         ## Simulate increased risk in children age <= 12
+# #         if (X[i] <= 12):
+# #             max_uptick_magnitude = ((12 - X[i])/12)**2 * 2
+# #             Y[i] += np.random.uniform(low=0.25, high=max_uptick_magnitude) + np.random.normal(scale=0.1)
+        
+#     Y = np.where(Y<0.75, 0.75, Y) ## Min value Y is 0.1
+#     Y = np.where(Y>9.7, 9.7, Y) ## Max value Y is 10
+    
+
+#     return pd.DataFrame(np.c_[X, Y], columns=['X','Y'])
+
+
+
+
+# def mean_func_synthetic_v3(x): 
+# #     return np.sin(x/12)+x*3/40+0.5
+#     if (x <= 18):
+#         return ((x-18)/20)**2 + 1
+#     else:
+#         return ((x-18)/25)**2 + 1
+
+
+
+# def get_1dim_synthetic_v3_data(size=20000):
+# #     high=100 # 2*np.pi
+# #     X = np.random.uniform(low=15, high=high, size=size)
+# #     mu, sigma = 35, 20
+# #     mu2, sigma2 = 8, 20
+
+#     ## Simulate mildly bimodal age distribution for X
+#     mu, sigma = 60, 5
+#     mu2, sigma2 = 45, 10
+#     mu3, sigma3 = 10, 10
+# #     mu, sigma = 40, 20
+# #     mu2, sigma2 = 10, 20
+#     X1 = np.abs(np.random.normal(mu, sigma, size=int(2*size*1/7)))
+#     X2 = np.abs(np.random.normal(mu2, sigma2, size=int(2*size*4/7)))
+#     X3 = np.abs(np.random.normal(mu3, sigma3, size=int(2*size*2/7)))
+#     X = np.concatenate([X1, X2, X3])
+# #     X = X[np.where((X>=18) & (X<=90))[0]]
+#     X = X[np.where(X<=85)[0]]
+#     X = np.random.choice(X, size)
+#     size_clipped = len(X)
+#     Y = np.zeros(size_clipped)
+    
+            
+#     for i in range(0, size_clipped):
+#         Y[i] = np.random.normal(mean_func_synthetic_v3(X[i]), ((X[i]-18)/40)**2 + 0.1)
+        
+#         ## Simulate increased risk in children age <= 12
+# #         if (X[i] <= 12):
+# #             max_uptick_magnitude = ((12 - X[i])/12)**2 * 2
+# #             Y[i] += np.random.uniform(low=0.25, high=max_uptick_magnitude) + np.random.normal(scale=0.1)
+        
+#     Y = np.where(Y<0.5, 0.5, Y) ## Min value Y is 0.1
+#     Y = np.where(Y>9.8, 9.8, Y) ## Max value Y is 10
+    
+
+#     return pd.DataFrame(np.c_[X, Y], columns=['X','Y'])
+def mean_func_synthetic_v3(x): 
+#     return np.sin(x/12)+x*3/40+0.5
+    return ((x-25)/25)**2 + 1
+
+
+
+def get_1dim_synthetic_v3_data(size=30000):
 #     high=100 # 2*np.pi
 #     X = np.random.uniform(low=15, high=high, size=size)
-    mu, sigma = 50, 20
-    mu2, sigma2 = 0, 20
-    X1 = np.abs(np.random.normal(mu, sigma, size=int(size/2)))
-    X2 = np.abs(np.random.normal(mu2, sigma2, size=int(size/2)))
+    mu, sigma = 50, 10
+    mu2, sigma2 = 10, 20
+    X1 = np.abs(np.random.normal(mu, sigma, size=int(2*size*3/5)))
+    X2 = np.abs(np.random.normal(mu2, sigma2, size=int(2*size*2/5)))
     X = np.concatenate([X1, X2])
-    X = X[np.where((X>=18) & (X<=90))[0]]
+#     X = X[np.where((X>=18) & (X<=90))[0]]
+    X = X[np.where(X<=85)[0]]
+    X = np.random.choice(X, size)
     size_clipped = len(X)
     Y = np.zeros(size_clipped)
+    
+            
     for i in range(0, size_clipped):
         
-        Y[i] = np.random.normal(mean_func_synthetic_v3(X[i]), ((X[i]+20)/100)**2)
+        Y[i] = np.random.normal(mean_func_synthetic_v3(X[i]), ((X[i]-25)/50)**2 + 0.1)
+        
+        
+    Y = np.where(Y<0.25, 0.25, Y) ## Min value Y is 0.1
+    Y = np.where(Y>9.7, 9.7, Y) ## Max value Y is 10
+    
 
     return pd.DataFrame(np.c_[X, Y], columns=['X','Y'])
 
@@ -514,7 +724,7 @@ def get_w(x_pca, x, dataset, bias):
         return np.exp(x * bias).squeeze()
     
     elif (dataset == '1dim_synthetic_v3'):
-        return np.exp(x * bias).squeeze()
+        return np.exp(np.abs(x-18) * bias).squeeze()
     
     elif (dataset == '1dim_linear_synthetic'):
         return np.exp(x * bias).squeeze()
@@ -660,6 +870,8 @@ def exponential_tilting_indices(x_pca, x, dataset, bias=1, frac=0.5):
 #     print("n : ", n, "d :", d)
     
     importance_weights = get_w(x_pca, x, dataset, bias)
+#     print("len(importance_weights) : ", len(importance_weights))
+#     print("importance_weights : ", importance_weights)
 #     print()
 #     print("importance_weights : ", np.shape(importance_weights))
 #     print("L1 squared : ", np.linalg.norm(weights, ord=1)**2)
@@ -956,7 +1168,7 @@ def split_and_shift_dataset0(
 #             display((x_threshold - dataset0_test_0.loc[indices_to_shift, 'X']).hist())
 #             plt.show()
 #             dataset0_test_0.loc[indices_to_shift, 'Y'] *= np.abs(x_threshold - dataset0_test_0.loc[indices_to_shift, 'X'])/x_threshold * label_uptick
-            max_uptick_magnitude = (x_threshold - dataset0_test_0.loc[indices_to_shift, 'X'])**2 * label_uptick
+            max_uptick_magnitude = ((x_threshold - dataset0_test_0.loc[indices_to_shift, 'X'])/x_threshold)**2 * label_uptick
             dataset0_test_0.loc[indices_to_shift, 'Y'] += np.random.uniform(low=0.25, high=max_uptick_magnitude) + np.random.normal(scale=0.1)
             
         elif 'airfoil' in dataset0_name:
