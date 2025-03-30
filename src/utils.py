@@ -473,7 +473,8 @@ def replicate_dataset(original_dataset, transform=None):
 
 
 def cal_test_mixture(args, fulltrainset, corrupted_dataset, transform=None, train_indices=None, val_dataset_indices=None):
-    assert args.val_set_size * args.mixture_ratio_val < len(corrupted_dataset) * args.mixture_ratio_test, "Not enough data to sample from"
+    if not (args.mixture_ratio_val == 0 and args.mixture_ratio_test == 0):
+        assert args.val_set_size * args.mixture_ratio_val < len(corrupted_dataset) * args.mixture_ratio_test, "Not enough data to sample from"
     init_phase = args.init_clean
     if train_indices is None:
         all_indices_train = np.arange(len(fulltrainset))

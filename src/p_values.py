@@ -26,12 +26,81 @@ def random_forest_weight_est(X, class_labels, ntree=100):
     return rf_probs[:,1] / rf_probs[:,0]
 
 
+class MNISTDiscriminator(nn.Module):
+    """
+    A discriminator model to distinguish between source (uncorrupted) and target (corrupted) MNIST data.
+    The model is designed to achieve both good accuracy and calibration.
+    """
+    def __init__(self, dropout_rate=0.3):
+        super(MNISTDiscriminator, self).__init__()
+        
+        # First convolutional block
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(32)
+        self.relu1 = nn.ReLU()
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.dropout1 = nn.Dropout(dropout_rate)
+        
+        # Second convolutional block
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.relu2 = nn.ReLU()
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.dropout2 = nn.Dropout(dropout_rate)
+        
+        # Fully connected layers
+        self.fc1 = nn.Linear(64 * 7 * 7, 128)
+        self.bn3 = nn.BatchNorm1d(128)
+        self.relu3 = nn.ReLU()
+        self.dropout3 = nn.Dropout(dropout_rate)
+        
+        # Output layer with temperature scaling for better calibration
+        self.fc2 = nn.Linear(128, 2)
+        self.temperature = nn.Parameter(torch.ones(1) * 1.5)  # Temperature parameter for calibration
+        
+    def forward(self, x):
+        # First block
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu1(x)
+        x = self.pool1(x)
+        x = self.dropout1(x)
+        
+        # Second block
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu2(x)
+        x = self.pool2(x)
+        x = self.dropout2(x)
+        
+        # Flatten
+        x = x.view(x.size(0), -1)
+        
+        # Fully connected layers
+        x = self.fc1(x)
+        x = self.bn3(x)
+        x = self.relu3(x)
+        x = self.dropout3(x)
+        
+        # Output layer with temperature scaling for better calibration
+        x = self.fc2(x)
+        return x / self.temperature
+    
+    def predict_proba(self, x):
+        """
+        Returns calibrated probabilities for binary classification
+        """
+        logits = self.forward(x)
+        return F.softmax(logits, dim=1)
+    
+
 def offline_lik_ratio_estimates_images(cal_test_w_est_loader, test_loader, dataset0_name = 'mnist', device=None, 
                                        setting='', epochs=80, lr=1e-3, epsilon=1e-9, classifier='MLP'):
 
      # Train smaller MLP model to estimate source/target probabilities
     if dataset0_name == 'mnist':
-        model = MLP(input_size=784, hidden_size=32, num_classes=2).to(device)
+        # model = MLP(input_size=784, hidden_size=32, num_classes=2).to(device)
+        model = MNISTDiscriminator(dropout_rate=0.3).to(device)
     elif dataset0_name == 'cifar10':
         model = MLP(input_size=3*32*32, hidden_size=32, num_classes=2).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -383,7 +452,7 @@ def calculate_weighted_p_values_and_quantiles(args, conformity_scores, W_i, adap
     print("num_test_unshifted : ", num_test_unshifted)
     
     
-    print("len cs_resampled_cal_list : ", len(cs_resampled_cal_list))
+    # print("len cs_resampled_cal_list : ", len(cs_resampled_cal_list))
 #     ## For 0:adapt_start, compute as standard p-values and quantiles
 #     if (args is None):
 #         wp_values[0:adapt_start], wq_lower[0:adapt_start], wq_upper[0:adapt_start] = \
@@ -484,9 +553,9 @@ def calculate_weighted_p_values_and_quantiles(args, conformity_scores, W_i, adap
                 ## Else: over (relative) weight 'alpha' put on test pt score, compute anticonservative (and deterministic) p-values:
                 wp_values[adapt_start+t_] = np.sum(normalized_weights_t[conformity_scores_t > conformity_scores_t[-1]])
                 
-                print(f'len(normalized_weights_t) : {len(normalized_weights_t)}')
-                print("Using conservative p-values at index ", t_, "p-val : ", wp_values[adapt_start+t_])
-                print(f'conformity_scores_{t_}[-1] : {conformity_scores_t[-1]}; weighted median : {weighted_quantile(conformity_scores_t, normalized_weights_t, 0.5)}')
+                # print(f'len(normalized_weights_t) : {len(normalized_weights_t)}')
+                # print("Using conservative p-values at index ", t_, "p-val : ", wp_values[adapt_start+t_])
+                # print(f'conformity_scores_{t_}[-1] : {conformity_scores_t[-1]}; weighted median : {weighted_quantile(conformity_scores_t, normalized_weights_t, 0.5)}')
 #                 if (np.isnan(wp_values[adapt_start+t_])):
 #                     print("conformity_scores_t[-1] : ", conformity_scores_t[-1])
 #                     print(wp_values)

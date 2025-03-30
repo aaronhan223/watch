@@ -37,7 +37,6 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
 
         # Plot dataset0 group with dashed lines
         for m_i, method in enumerate(methods):
-            
             plt.plot(paths_0_dict[method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i}')
 
         plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Changepoint')
@@ -122,7 +121,7 @@ def plot_errors(errors_0_means_dict, errors_0_stderr_dict,
     plt.yticks(fontsize=y_tick_size)     
     
     if (dataset0_shift_type == 'none'):
-        plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_{dataset0_name}_AbsoluteErrors.pdf', bbox_inches='tight')
+        plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_{dataset0_name}_AbsoluteErrors_{setting}.pdf', bbox_inches='tight')
     else:
         plt.savefig(os.getcwd() + f'/../{plot_image_data}figs/{date.today()}_error_{setting}.pdf', bbox_inches='tight')
 
