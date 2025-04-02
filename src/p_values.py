@@ -25,6 +25,97 @@ def random_forest_weight_est(X, class_labels, ntree=100):
     rf_probs = rf.predict_proba(X)
     return rf_probs[:,1] / rf_probs[:,0]
 
+class CIFAR10Discriminator(nn.Module):
+    """
+    A discriminator model to distinguish between source (uncorrupted) and target (corrupted) CIFAR-10 data.
+    The model is designed to achieve both good accuracy and calibration.
+    """
+    def __init__(self, dropout_rate=0.3):
+        super(CIFAR10Discriminator, self).__init__()
+        
+        # First convolutional block
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu1 = nn.ReLU()
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.dropout1 = nn.Dropout(dropout_rate)
+        
+        # Second convolutional block
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(128)
+        self.relu2 = nn.ReLU()
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.dropout2 = nn.Dropout(dropout_rate)
+        
+        # Third convolutional block
+        self.conv3 = nn.Conv2d(128, 256, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(256)
+        self.relu3 = nn.ReLU()
+        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.dropout3 = nn.Dropout(dropout_rate)
+        
+        # Fully connected layers
+        self.fc1 = nn.Linear(256 * 4 * 4, 512)
+        self.bn4 = nn.BatchNorm1d(512)
+        self.relu4 = nn.ReLU()
+        self.dropout4 = nn.Dropout(dropout_rate)
+        
+        self.fc2 = nn.Linear(512, 128)
+        self.bn5 = nn.BatchNorm1d(128)
+        self.relu5 = nn.ReLU()
+        self.dropout5 = nn.Dropout(dropout_rate)
+        
+        # Output layer with temperature scaling for better calibration
+        self.fc3 = nn.Linear(128, 2)
+        self.temperature = nn.Parameter(torch.ones(1) * 1.5)  # Temperature parameter for calibration
+        
+    def forward(self, x):
+        # First block
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu1(x)
+        x = self.pool1(x)
+        x = self.dropout1(x)
+        
+        # Second block
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu2(x)
+        x = self.pool2(x)
+        x = self.dropout2(x)
+        
+        # Third block
+        x = self.conv3(x)
+        x = self.bn3(x)
+        x = self.relu3(x)
+        x = self.pool3(x)
+        x = self.dropout3(x)
+        
+        # Flatten
+        x = x.view(x.size(0), -1)
+        
+        # Fully connected layers
+        x = self.fc1(x)
+        x = self.bn4(x)
+        x = self.relu4(x)
+        x = self.dropout4(x)
+        
+        x = self.fc2(x)
+        x = self.bn5(x)
+        x = self.relu5(x)
+        x = self.dropout5(x)
+        
+        # Output with temperature scaling for better calibration
+        logits = self.fc3(x)
+        return logits / self.temperature
+    
+    def predict_proba(self, x):
+        """
+        Return calibrated probabilities for source vs target classification
+        """
+        logits = self.forward(x)
+        return F.softmax(logits, dim=1)
+
 
 class MNISTDiscriminator(nn.Module):
     """
@@ -102,13 +193,13 @@ def offline_lik_ratio_estimates_images(cal_test_w_est_loader, test_loader, datas
         # model = MLP(input_size=784, hidden_size=32, num_classes=2).to(device)
         model = MNISTDiscriminator(dropout_rate=0.3).to(device)
     elif dataset0_name == 'cifar10':
-        model = MLP(input_size=3*32*32, hidden_size=32, num_classes=2).to(device)
+        model = CIFAR10Discriminator(dropout_rate=0.3).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     
     ## Fit prob classifier offline
     fit(model, epochs, cal_test_w_est_loader, optimizer, setting, device)
     ## Evaluate probability estimiates
-    cal_test_prob_est, _ = eval_loss_prob(model, device, setting, cal_test_w_est_loader, test_loader, binary_classifier_probs=True)
+    cal_test_prob_est, _, _, _ = eval_loss_prob(model, device, setting, cal_test_w_est_loader, test_loader, binary_classifier_probs=True)
 
     return cal_test_prob_est / (1 - cal_test_prob_est + epsilon)
 
@@ -299,12 +390,11 @@ def calculate_p_values_and_quantiles(conformity_scores, alpha, cs_type='abs'):
     
     ## P-values: Each ith p-value is computed after labels observed, breaking ties randomly for exact validity
     p_values = calculate_p_values(conformity_scores)
-    
     ## Replace nan with appropriate inf values
     np.nan_to_num(q_lower, copy=False, nan=-np.inf, neginf=-np.inf)
     np.nan_to_num(q_upper, copy=False, nan=np.inf, posinf=np.inf)
         
-    return p_values , q_lower, q_upper
+    return p_values, q_lower, q_upper
 
 
 
@@ -642,3 +732,55 @@ def subsample_batch_weights_helper_t(w_array, t, max_num_samples=20):
             s += 1
     
     return w_array * w_sums
+
+
+def calculate_prediction_sets(probabilities, alpha, class_labels=None):
+    """
+    Calculate conformal prediction sets for classification tasks.
+    
+    Parameters:
+    -----------
+    probabilities : numpy.ndarray
+        Shape (n_samples, n_classes) containing model's predicted class probabilities
+    alpha : float
+        Desired significance level (e.g., 0.1 for 90% confidence)
+    class_labels : numpy.ndarray, optional
+        The true class labels to calculate coverage
+        
+    Returns:
+    --------
+    prediction_sets : list of lists
+        Each inner list contains the class indices in the prediction set
+    set_sizes : numpy.ndarray
+        Size (cardinality) of each prediction set
+    coverage : numpy.ndarray or None
+        Boolean array indicating whether true class is in the prediction set (if class_labels provided)
+    """
+    n_samples = probabilities.shape[0]
+    prediction_sets = []
+    set_sizes = np.zeros(n_samples, dtype=int)
+    
+    # For each sample, create prediction set by including classes in descending probability order
+    # until cumulative probability exceeds 1-alpha threshold
+    for i in range(n_samples):
+        # Sort probabilities in descending order and get corresponding indices
+        sorted_indices = np.argsort(probabilities[i])[::-1]
+        sorted_probs = probabilities[i][sorted_indices]
+        
+        # Calculate cumulative probabilities
+        cumulative_probs = np.cumsum(sorted_probs)
+        
+        # Find minimum number of classes needed to exceed 1-alpha threshold
+        cutoff_idx = np.argmax(cumulative_probs >= 1 - alpha)
+        
+        # Classes in prediction set
+        pred_set = sorted_indices[:cutoff_idx + 1].tolist()
+        prediction_sets.append(pred_set)
+        set_sizes[i] = len(pred_set)
+    
+    # Calculate coverage if true labels are provided
+    coverage = None
+    if class_labels is not None:
+        coverage = np.array([class_labels[i] in prediction_sets[i] for i in range(n_samples)])
+    
+    return prediction_sets, set_sizes, coverage

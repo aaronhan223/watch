@@ -188,7 +188,9 @@ def eval_loss_prob(model, device, setting, loader_0, loader_1, binary_classifier
     model.eval()
     all_preds = []
     all_losses = []
-
+    all_probs = []  # Store full probability distributions
+    all_labels = []  # Store true labels
+    
     with torch.no_grad():
         # Evaluate on validation loader
         correct = 0
@@ -197,11 +199,15 @@ def eval_loss_prob(model, device, setting, loader_0, loader_1, binary_classifier
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
             probabilities = torch.softmax(outputs, dim=1)
+            
+            # Store full probability distributions
+            all_probs.extend(probabilities.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            
             if binary_classifier_probs:
                 ## If want probs for lik ratio estimation (binary classifier prob est)
                 source_target_labels = torch.ones(len(labels), dtype=torch.int64).to(device) ## Estimate target probs p(Y_i=1) 
                 class_probs = probabilities.gather(1, source_target_labels.view(-1, 1)).squeeze()
-                
             else:
                 ## Default case for class probs (not for binary classification for lik ratio est)
                 class_probs = probabilities.gather(1, labels.view(-1, 1)).squeeze()
@@ -223,6 +229,11 @@ def eval_loss_prob(model, device, setting, loader_0, loader_1, binary_classifier
             images, labels = images.to(device), labels.to(device).long()
             outputs = model(images)
             probabilities = torch.softmax(outputs, dim=1)
+            
+            # Store full probability distributions
+            all_probs.extend(probabilities.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            
             if binary_classifier_probs:
                 ## If want probs for lik ratio estimation (binary classifier prob est)
                 source_target_labels = torch.ones(len(labels), dtype=torch.int64).to(device) ## Estimate target probs p(Y_i=1) 
@@ -245,7 +256,11 @@ def eval_loss_prob(model, device, setting, loader_0, loader_1, binary_classifier
         print(f'Accuracy on test loader: {accuracy * 100:.2f}%')
         if not binary_classifier_probs:
             all_losses = np.concatenate(all_losses)
-    return np.array(all_preds), all_losses
+    
+    all_probs = np.array(all_probs)
+    all_labels = np.array(all_labels)
+    
+    return np.array(all_preds), all_losses, all_probs, all_labels
 
 
 def fit(model, epochs, train_loader, optimizer, setting, device):
@@ -289,6 +304,10 @@ def train_and_evaluate(args, train_loader_0, test_loader_0, test_loader_s, devic
     corrupt_loss_dict = {}
     W_0_dict = {}
     W_1_dict = {}
+    class_probs_0 = {}  # Store full class probabilities
+    class_probs_1 = {}  # Store full class probabilities
+    true_labels_0 = {}  # Store true labels
+    true_labels_1 = {}  # Store true labels
 
     # Train the model on the training set proper
     if dataset0_name == 'mnist':
@@ -303,16 +322,28 @@ def train_and_evaluate(args, train_loader_0, test_loader_0, test_loader_s, devic
     for method in args.methods:
         if method == 'fixed_cal_offline':
             print(f"\nEvaluating {method} on clean datasets")
-            clean_pred, clean_loss = eval_loss_prob(model, device, setting, cal_test_w_est_loader_0, test_loader_s)
+            clean_pred, clean_loss, clean_probs, clean_labels = eval_loss_prob(model, device, setting, cal_test_w_est_loader_0, test_loader_s)
             print(f"\nEvaluating {method} on corrupted datasets")
-            corrupt_pred, corrupt_loss = eval_loss_prob(model, device, setting, cal_test_w_est_loader_1, test_loader_mixed)
+            corrupt_pred, corrupt_loss, corrupt_probs, corrupt_labels = eval_loss_prob(model, device, setting, cal_test_w_est_loader_1, test_loader_mixed)
+            
+            # Store the full class probabilities and true labels
+            class_probs_0[method] = clean_probs
+            class_probs_1[method] = corrupt_probs
+            true_labels_0[method] = clean_labels
+            true_labels_1[method] = corrupt_labels
             clean_loss_dict[method] = clean_loss
             corrupt_loss_dict[method] = corrupt_loss
         else:
             print(f"\nEvaluating {method} on clean datasets")
-            clean_pred, clean_loss = eval_loss_prob(model, device, setting, val_loader_0, test_loader_0)
+            clean_pred, clean_loss, clean_probs, clean_labels = eval_loss_prob(model, device, setting, val_loader_0, test_loader_0)
             print(f"\nEvaluating {method} on corrupted datasets")
-            corrupt_pred, corrupt_loss = eval_loss_prob(model, device, setting, val_loader_0, loader_1)
+            corrupt_pred, corrupt_loss, corrupt_probs, corrupt_labels = eval_loss_prob(model, device, setting, val_loader_0, loader_1)
+            
+            # Store the full class probabilities and true labels
+            class_probs_0[method] = clean_probs
+            class_probs_1[method] = corrupt_probs
+            true_labels_0[method] = clean_labels
+            true_labels_1[method] = corrupt_labels
             clean_loss_dict[method] = clean_loss
             corrupt_loss_dict[method] = corrupt_loss
 
@@ -337,10 +368,10 @@ def train_and_evaluate(args, train_loader_0, test_loader_0, test_loader_s, devic
             W_0_dict[method] = None
             W_1_dict[method] = None
 
-    return cs_0, cs_1, clean_loss_dict, corrupt_loss_dict, W_0_dict, W_1_dict
+    return cs_0, cs_1, clean_loss_dict, corrupt_loss_dict, W_0_dict, W_1_dict, class_probs_0, class_probs_1, true_labels_0, true_labels_1
 
 
-def retrain_count(args, conformity_score, method, cu_confidence=0.99, W=None):
+def retrain_count(args, conformity_score, method, cu_confidence=0.99, W=None, class_probs=None, true_labels=None):
     p_values = calculate_p_values(conformity_score)
     
     if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline']):
@@ -348,7 +379,20 @@ def retrain_count(args, conformity_score, method, cu_confidence=0.99, W=None):
     else:
         p_values, q_lower, q_upper = calculate_p_values_and_quantiles(conformity_score, args.alpha, args.cs_type)
     
-    # num_samples = min(10000 + args.val_set_size, args.num_samples_vis + args.init_clean)
+    # For classification, calculate prediction sets and their metrics if class probabilities are provided
+    pred_sets = None
+    set_sizes = None
+    coverage_rate = None
+    
+    if class_probs is not None:
+        # Calculate prediction sets, their sizes, and coverage rate
+        pred_sets, set_sizes, coverage_rate = calculate_prediction_sets(
+            class_probs[:args.num_samples_vis], 
+            args.alpha,
+            true_labels[:args.num_samples_vis] if true_labels is not None else None
+        )
+
+    # Calculate martingale values for monitoring
     if args.init_ctm_on_cal_set:
         retrain_m, martingale_value = composite_jumper_martingale(p_values[:args.num_samples_vis], verbose=args.verbose, threshold=args.mt_threshold)
     else:
@@ -366,7 +410,8 @@ def retrain_count(args, conformity_score, method, cu_confidence=0.99, W=None):
     # Append the last value of sigma to itself to ensure consistent length
     if len(sigma) > 0:
         sigma = np.append(sigma, sigma[-1])
-    return retrain_m, retrain_s, martingale_value, sigma, p_values[:args.num_samples_vis], q_lower[:args.num_samples_vis], q_upper[:args.num_samples_vis]
+    
+    return retrain_m, retrain_s, martingale_value, sigma, p_values[:args.num_samples_vis], q_lower[:args.num_samples_vis], q_upper[:args.num_samples_vis], set_sizes, coverage_rate
 
 
 def training_function(args, train_loader_0, test_loader_0, test_loader_s, device, setting, val_loader_0=None, loader_1=None, 
@@ -374,7 +419,7 @@ def training_function(args, train_loader_0, test_loader_0, test_loader_s, device
                       cal_test_w_est_loader_binary_0=None, cal_test_w_est_loader_binary_1=None, test_loader_mixed_binary=None,
                       test_loader_s_binary=None):
     
-    cs_0, cs_1, clean_loss_dict, corrupt_loss_dict, W_0_dict, W_1_dict = train_and_evaluate(
+    cs_0, cs_1, clean_loss_dict, corrupt_loss_dict, W_0_dict, W_1_dict, class_probs_0, class_probs_1, true_labels_0, true_labels_1 = train_and_evaluate(
         args=args,
         train_loader_0=train_loader_0,
         val_loader_0=val_loader_0,
@@ -399,6 +444,10 @@ def training_function(args, train_loader_0, test_loader_0, test_loader_s, device
     p_values_0_dict, p_values_1_dict = {}, {}
     coverage_0_dict, coverage_1_dict = {}, {}
     widths_0_dict, widths_1_dict = {}, {}
+    set_sizes_0_dict = {}
+    set_sizes_1_dict = {}
+    class_coverage_0_dict = {}
+    class_coverage_1_dict = {}
 
     if args.run_PR_ST:
         ## Podkopaev Ramdas sequential testing method
@@ -420,6 +469,8 @@ def training_function(args, train_loader_0, test_loader_0, test_loader_s, device
         p_values_0_dict[method], p_values_1_dict[method] = [], []
         coverage_0_dict[method], coverage_1_dict[method] = [], []
         widths_0_dict[method], widths_1_dict[method] = [], []
+        set_sizes_0_dict[method], set_sizes_1_dict[method] = [], []
+        class_coverage_0_dict[method], class_coverage_1_dict[method] = [], []
 
         if args.run_PR_ST:
             PR_ST_alarm_0_dict['PR_ST_cp_'+method], PR_ST_alarm_1_dict['PR_ST_cp_'+method] = [], []
@@ -432,22 +483,34 @@ def training_function(args, train_loader_0, test_loader_0, test_loader_s, device
             PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method], PR_CD_target_LCBs_1_dict['PR_CD_cp_'+method] = [], []
 
     for method in args.methods:
-        if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline']):
-            print('Clean dataset:   ', method)
-            m_0, s_0, martingale_value_0, sigma_0, p_vals_0, q_lower_0, q_upper_0 = retrain_count(args=args, conformity_score=cs_0[method], W=W_0_dict[method], method=method)
-            print(f'Corrupted dataset {args.corruption_type} severity {args.severity}:   ', method)
-            m_1, s_1, martingale_value_1, sigma_1, p_vals_1, q_lower_1, q_upper_1 = retrain_count(args=args, conformity_score=cs_1[method], W=W_1_dict[method], method=method)
-        else:
-            ## Run baseline with uniform weights
-            print('Clean dataset:   ', method)
-            m_0, s_0, martingale_value_0, sigma_0, p_vals_0, q_lower_0, q_upper_0 = retrain_count(args=args, conformity_score=cs_0[method], method=method, W=W_0_dict[method])
-            print(f'Corrupted dataset {args.corruption_type} severity {args.severity}:   ', method)
-            m_1, s_1, martingale_value_1, sigma_1, p_vals_1, q_lower_1, q_upper_1 = retrain_count(args=args, conformity_score=cs_1[method], method=method, W=W_1_dict[method])
+        print('Clean dataset:   ', method)
+        m_0, s_0, martingale_value_0, sigma_0, p_vals_0, q_lower_0, q_upper_0, set_sizes_0, class_coverage_0 = retrain_count(
+            args=args, 
+            conformity_score=cs_0[method], 
+            W=W_0_dict[method], 
+            method=method, 
+            class_probs=class_probs_0[method],
+            true_labels=true_labels_0[method]
+        )
+        
+        print(f'Corrupted dataset {args.corruption_type} severity {args.severity}:   ', method)
+        m_1, s_1, martingale_value_1, sigma_1, p_vals_1, q_lower_1, q_upper_1, set_sizes_1, class_coverage_1 = retrain_count(
+            args=args, 
+            conformity_score=cs_1[method], 
+            W=W_1_dict[method], 
+            method=method,
+            class_probs=class_probs_1[method],
+            true_labels=true_labels_1[method]
+        )
             
         martingales_0_dict[method].append(martingale_value_0)
         sigmas_0_dict[method].append(sigma_0)
         martingales_1_dict[method].append(martingale_value_1)
         sigmas_1_dict[method].append(sigma_1)
+        set_sizes_0_dict[method].append(set_sizes_0)
+        set_sizes_1_dict[method].append(set_sizes_1)
+        class_coverage_0_dict[method].append(class_coverage_0)
+        class_coverage_1_dict[method].append(class_coverage_1)
 
         ## Storing p-values
         p_values_0_dict[method].append(p_vals_0)
@@ -578,7 +641,8 @@ def training_function(args, train_loader_0, test_loader_0, test_loader_s, device
                 PR_CD_paths['PR_CD_LCB_0_'+str(k)] = PR_CD_target_LCBs_0_dict['PR_CD_cp_'+method][k][0:PR_CD_min_len]
                 
             PR_CD_paths_dict['PR_CD_cp_'+method] = PR_CD_paths
-    return paths_dict, PR_ST_paths_dict, PR_CD_paths_dict
+    
+    return paths_dict, PR_ST_paths_dict, PR_CD_paths_dict, set_sizes_0_dict, set_sizes_1_dict, class_coverage_0_dict, class_coverage_1_dict
 
 
 if __name__ == "__main__":
@@ -631,6 +695,10 @@ if __name__ == "__main__":
                     help='Set the init_ctm_on_cal_set flag value to False.')
     parser.set_defaults(init_ctm_on_cal_set=True, run_PR_ST=False, run_PR_CD=False)
 
+    # Add the new parameter for plot image path
+    parser.add_argument('--plot_image_data', type=str, default='mnist_15000_', 
+                        help='Path prefix for saving plot images')
+
     args = parser.parse_args()
     dataset0_name = args.dataset0
     dataset1_name = args.dataset1
@@ -671,8 +739,21 @@ if __name__ == "__main__":
     paths_dict_all = {}
     PR_ST_paths_dict_all = {}
     PR_CD_paths_dict_all = {}
+    
+    # # New dictionaries for classification metrics
+    # set_sizes_0_dict_all = {}
+    # set_sizes_1_dict_all = {}
+    # class_coverage_0_dict_all = {}
+    # class_coverage_1_dict_all = {}
+    
     for method in args.methods:
         paths_dict_all[method] = pd.DataFrame()
+        
+        # # Initialize new dictionaries
+        # set_sizes_0_dict_all[method] = []
+        # set_sizes_1_dict_all[method] = []
+        # class_coverage_0_dict_all[method] = []
+        # class_coverage_1_dict_all[method] = []
 
         if run_PR_ST:
             PR_ST_paths_dict_all['PR_ST_cp_'+method] = pd.DataFrame()
@@ -732,7 +813,7 @@ if __name__ == "__main__":
 
         train_loader_0, val_loader_0, test_loader_0, cal_test_w_est_loader_binary_0, cal_test_w_est_loader_0, test_loader_s, test_loader_s_binary = loaders
         loader_1, cal_test_w_est_loader_binary_1, cal_test_w_est_loader_1, test_loader_mixed, test_loader_mixed_binary = loader_1
-        paths_dict_curr, PR_ST_paths_dict_curr, PR_CD_paths_dict_curr = training_function(
+        paths_dict_curr, PR_ST_paths_dict_curr, PR_CD_paths_dict_curr, set_sizes_0_dict_curr, set_sizes_1_dict_curr, class_coverage_0_dict_curr, class_coverage_1_dict_curr = training_function(
             args=args,
             train_loader_0=train_loader_0, 
             val_loader_0=val_loader_0,
@@ -752,6 +833,12 @@ if __name__ == "__main__":
 
         for method in methods:
             paths_dict_all[method] = pd.concat([paths_dict_all[method], paths_dict_curr[method]], ignore_index=True)
+            
+            # # Append classification metrics
+            # set_sizes_0_dict_all[method].extend(set_sizes_0_dict_curr[method])
+            # set_sizes_1_dict_all[method].extend(set_sizes_1_dict_curr[method])
+            # class_coverage_0_dict_all[method].extend(class_coverage_0_dict_curr[method])
+            # class_coverage_1_dict_all[method].extend(class_coverage_1_dict_curr[method])
             if run_PR_ST:
                 PR_ST_paths_dict_all['PR_ST_cp_'+method] = pd.concat([PR_ST_paths_dict_all['PR_ST_cp_'+method], \
                                                                       PR_ST_paths_dict_curr['PR_ST_cp_'+method]],\
@@ -913,28 +1000,83 @@ if __name__ == "__main__":
         p_vals_pre_change_dict[method] = p_vals_pre_change
         p_vals_post_change_dict[method] = p_vals_post_change
 
-    plot_martingale_paths(
-        dataset0_paths_dict=sigmas_0_means_dict,
-        dataset0_paths_stderr_dict=sigmas_0_stderr_dict,
-        martingales_0_dict=martingales_0_means_dict,
-        martingales_0_stderr_dict=martingales_0_stderr_dict,
-        dataset1_paths_dict=sigmas_1_means_dict,
-        dataset1_paths_stderr_dict=sigmas_1_stderr_dict,
-        change_point_index=changepoint_index,
-        martingales_1_dict=martingales_1_means_dict,
-        martingales_1_stderr_dict=martingales_1_stderr_dict,
-        dataset0_name=dataset0_name,
-        dataset0_shift_type=corruption_type,
-        martingale=["Shiryaev-Roberts", "Martingale"],
-        n_seeds=n_seeds,
-        cs_type=cs_type,
-        setting=setting,
-        methods=methods,
-        severity=severity
-    )
-    plot_errors(
-        errors_0_means_dict=errors_0_means_dict,
-        errors_0_stderr_dict=errors_0_stderr_dict,
+    # Extract the plot_image_data parameter from arguments
+    plot_image_data = args.plot_image_data
+
+    # plot_martingale_paths(
+    #     dataset0_paths_dict=sigmas_0_means_dict,
+    #     dataset0_paths_stderr_dict=sigmas_0_stderr_dict,
+    #     martingales_0_dict=martingales_0_means_dict,
+    #     martingales_0_stderr_dict=martingales_0_stderr_dict,
+    #     dataset1_paths_dict=sigmas_1_means_dict,
+    #     dataset1_paths_stderr_dict=sigmas_1_stderr_dict,
+    #     change_point_index=changepoint_index,
+    #     martingales_1_dict=martingales_1_means_dict,
+    #     martingales_1_stderr_dict=martingales_1_stderr_dict,
+    #     dataset0_name=dataset0_name,
+    #     dataset0_shift_type=corruption_type,
+    #     martingale=["Shiryaev-Roberts", "Martingale"],
+    #     n_seeds=n_seeds,
+    #     cs_type=cs_type,
+    #     setting=setting,
+    #     methods=methods,
+    #     severity=severity,
+    #     plot_image_data=plot_image_data
+    # )
+    # plot_errors(
+    #     errors_0_means_dict=errors_0_means_dict,
+    #     errors_0_stderr_dict=errors_0_stderr_dict,
+    #     errs_window=errs_window,
+    #     change_point_index=changepoint_index,
+    #     dataset0_name=dataset0_name,
+    #     dataset0_shift_type=corruption_type,
+    #     n_seeds=n_seeds,
+    #     cs_type=cs_type,
+    #     setting=setting,
+    #     methods=methods,
+    #     severity=severity,
+    #     plot_image_data=plot_image_data
+    # )
+    # plot_coverage(
+    #     coverage_0_means_dict=coverage_0_means_dict,
+    #     coverage_0_stderr_dict=coverage_0_stderr_dict,
+    #     errs_window=errs_window,
+    #     change_point_index=changepoint_index,
+    #     dataset0_name=dataset0_name,
+    #     dataset0_shift_type=corruption_type,
+    #     n_seeds=n_seeds,
+    #     cs_type=cs_type,
+    #     setting=setting,
+    #     methods=methods,
+    #     severity=severity
+    # )
+    # plot_widths(
+    #     widths_0_medians_dict=widths_0_medians_dict,
+    #     widths_0_lower_q_dict=widths_0_lower_q_dict,
+    #     widths_0_upper_q_dict=widths_0_upper_q_dict,
+    #     errs_window=errs_window,
+    #     change_point_index=changepoint_index,
+    #     dataset0_name=dataset0_name,
+    #     dataset0_shift_type=corruption_type,
+    #     n_seeds=n_seeds,
+    #     cs_type=cs_type,
+    #     setting=setting,
+    #     methods=methods,
+    #     severity=severity
+    # )
+    # plot_p_vals(
+    #     p_vals_pre_change_dict=p_vals_pre_change_dict,
+    #     p_vals_post_change_dict=p_vals_post_change_dict,
+    #     dataset0_name=dataset0_name,
+    #     setting=setting,
+    #     methods=methods,
+    #     plot_image_data=plot_image_data
+    # )
+    
+    # Add call to plot classification metrics
+    plot_classification_metrics(
+        set_sizes_dict=set_sizes_0_dict_curr,
+        class_coverage_dict=class_coverage_0_dict_curr,
         errs_window=errs_window,
         change_point_index=changepoint_index,
         dataset0_name=dataset0_name,
@@ -943,41 +1085,26 @@ if __name__ == "__main__":
         cs_type=cs_type,
         setting=setting,
         methods=methods,
-        severity=severity
-    )
-    plot_coverage(
-        coverage_0_means_dict=coverage_0_means_dict,
-        coverage_0_stderr_dict=coverage_0_stderr_dict,
-        errs_window=errs_window,
-        change_point_index=changepoint_index,
-        dataset0_name=dataset0_name,
-        dataset0_shift_type=corruption_type,
-        n_seeds=n_seeds,
-        cs_type=cs_type,
-        setting=setting,
-        methods=methods,
-        severity=severity
-    )
-    plot_widths(
-        widths_0_medians_dict=widths_0_medians_dict,
-        widths_0_lower_q_dict=widths_0_lower_q_dict,
-        widths_0_upper_q_dict=widths_0_upper_q_dict,
-        errs_window=errs_window,
-        change_point_index=changepoint_index,
-        dataset0_name=dataset0_name,
-        dataset0_shift_type=corruption_type,
-        n_seeds=n_seeds,
-        cs_type=cs_type,
-        setting=setting,
-        methods=methods,
-        severity=severity
-    )
-    plot_p_vals(
-        p_vals_pre_change_dict=p_vals_pre_change_dict,
-        p_vals_post_change_dict=p_vals_post_change_dict,
-        dataset0_name=dataset0_name,
-        setting=setting,
-        methods=methods
+        severity=severity,
+        args=args,
+        plot_image_data=plot_image_data
     )
     
+    # Plot classification metrics for corrupted datasets
+    plot_classification_metrics(
+        set_sizes_dict=set_sizes_1_dict_curr,
+        class_coverage_dict=class_coverage_1_dict_curr,
+        errs_window=errs_window,
+        change_point_index=changepoint_index,
+        dataset0_name=dataset0_name,
+        dataset0_shift_type=corruption_type,
+        n_seeds=n_seeds,
+        cs_type=cs_type,
+        setting=setting + "_corrupted",
+        methods=methods,
+        severity=severity,
+        args=args,
+        plot_image_data=plot_image_data
+    )
+
     print('\nProgram done!')
