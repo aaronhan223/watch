@@ -741,19 +741,19 @@ if __name__ == "__main__":
     PR_CD_paths_dict_all = {}
     
     # # New dictionaries for classification metrics
-    # set_sizes_0_dict_all = {}
-    # set_sizes_1_dict_all = {}
-    # class_coverage_0_dict_all = {}
-    # class_coverage_1_dict_all = {}
+    set_sizes_0_dict_all = {}
+    set_sizes_1_dict_all = {}
+    class_coverage_0_dict_all = {}
+    class_coverage_1_dict_all = {}
     
     for method in args.methods:
         paths_dict_all[method] = pd.DataFrame()
         
         # # Initialize new dictionaries
-        # set_sizes_0_dict_all[method] = []
-        # set_sizes_1_dict_all[method] = []
-        # class_coverage_0_dict_all[method] = []
-        # class_coverage_1_dict_all[method] = []
+        set_sizes_0_dict_all[method] = []
+        set_sizes_1_dict_all[method] = []
+        class_coverage_0_dict_all[method] = []
+        class_coverage_1_dict_all[method] = []
 
         if run_PR_ST:
             PR_ST_paths_dict_all['PR_ST_cp_'+method] = pd.DataFrame()
@@ -835,10 +835,10 @@ if __name__ == "__main__":
             paths_dict_all[method] = pd.concat([paths_dict_all[method], paths_dict_curr[method]], ignore_index=True)
             
             # # Append classification metrics
-            # set_sizes_0_dict_all[method].extend(set_sizes_0_dict_curr[method])
-            # set_sizes_1_dict_all[method].extend(set_sizes_1_dict_curr[method])
-            # class_coverage_0_dict_all[method].extend(class_coverage_0_dict_curr[method])
-            # class_coverage_1_dict_all[method].extend(class_coverage_1_dict_curr[method])
+            set_sizes_0_dict_all[method].extend(set_sizes_0_dict_curr[method])
+            set_sizes_1_dict_all[method].extend(set_sizes_1_dict_curr[method])
+            class_coverage_0_dict_all[method].extend(class_coverage_0_dict_curr[method])
+            class_coverage_1_dict_all[method].extend(class_coverage_1_dict_curr[method])
             if run_PR_ST:
                 PR_ST_paths_dict_all['PR_ST_cp_'+method] = pd.concat([PR_ST_paths_dict_all['PR_ST_cp_'+method], \
                                                                       PR_ST_paths_dict_curr['PR_ST_cp_'+method]],\
@@ -1002,27 +1002,26 @@ if __name__ == "__main__":
 
     # Extract the plot_image_data parameter from arguments
     plot_image_data = args.plot_image_data
-
-    # plot_martingale_paths(
-    #     dataset0_paths_dict=sigmas_0_means_dict,
-    #     dataset0_paths_stderr_dict=sigmas_0_stderr_dict,
-    #     martingales_0_dict=martingales_0_means_dict,
-    #     martingales_0_stderr_dict=martingales_0_stderr_dict,
-    #     dataset1_paths_dict=sigmas_1_means_dict,
-    #     dataset1_paths_stderr_dict=sigmas_1_stderr_dict,
-    #     change_point_index=changepoint_index,
-    #     martingales_1_dict=martingales_1_means_dict,
-    #     martingales_1_stderr_dict=martingales_1_stderr_dict,
-    #     dataset0_name=dataset0_name,
-    #     dataset0_shift_type=corruption_type,
-    #     martingale=["Shiryaev-Roberts", "Martingale"],
-    #     n_seeds=n_seeds,
-    #     cs_type=cs_type,
-    #     setting=setting,
-    #     methods=methods,
-    #     severity=severity,
-    #     plot_image_data=plot_image_data
-    # )
+    plot_martingale_paths(
+        dataset0_paths_dict=sigmas_0_means_dict,
+        dataset0_paths_stderr_dict=sigmas_0_stderr_dict,
+        martingales_0_dict=martingales_0_means_dict,
+        martingales_0_stderr_dict=martingales_0_stderr_dict,
+        dataset1_paths_dict=sigmas_1_means_dict,
+        dataset1_paths_stderr_dict=sigmas_1_stderr_dict,
+        change_point_index=changepoint_index,
+        martingales_1_dict=martingales_1_means_dict,
+        martingales_1_stderr_dict=martingales_1_stderr_dict,
+        dataset0_name=dataset0_name,
+        dataset0_shift_type=corruption_type,
+        martingale=["Shiryaev-Roberts", "Martingale"],
+        n_seeds=n_seeds,
+        cs_type=cs_type,
+        setting=setting,
+        methods=methods,
+        severity=severity,
+        plot_image_data=plot_image_data
+    )
     # plot_errors(
     #     errors_0_means_dict=errors_0_means_dict,
     #     errors_0_stderr_dict=errors_0_stderr_dict,
@@ -1075,8 +1074,8 @@ if __name__ == "__main__":
     
     # Add call to plot classification metrics
     plot_classification_metrics(
-        set_sizes_dict=set_sizes_0_dict_curr,
-        class_coverage_dict=class_coverage_0_dict_curr,
+        set_sizes_dict=set_sizes_0_dict_all,
+        class_coverage_dict=class_coverage_0_dict_all,
         errs_window=errs_window,
         change_point_index=changepoint_index,
         dataset0_name=dataset0_name,
@@ -1092,8 +1091,8 @@ if __name__ == "__main__":
     
     # Plot classification metrics for corrupted datasets
     plot_classification_metrics(
-        set_sizes_dict=set_sizes_1_dict_curr,
-        class_coverage_dict=class_coverage_1_dict_curr,
+        set_sizes_dict=set_sizes_1_dict_all,
+        class_coverage_dict=class_coverage_1_dict_all,
         errs_window=errs_window,
         change_point_index=changepoint_index,
         dataset0_name=dataset0_name,

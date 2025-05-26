@@ -1,6 +1,6 @@
 #!/bin/bash
 
-python -W ignore main_mnist_cifar.py \
+python -W ignore ../src/main_mnist_cifar.py \
     --dataset0 cifar10 \
     --dataset1 cifar10_c \
     --n_seeds 1 \

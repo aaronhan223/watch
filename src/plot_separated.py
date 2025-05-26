@@ -26,14 +26,25 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
     paths_1_stderr_dicts_all = [dataset1_paths_stderr_dict, martingales_1_stderr_dict]
     thresholds = [10**6, 10**6]
     for p_i, paths_0_dict in enumerate(paths_0_dicts_all):
-        # paths_0_stderr_dict = paths_0_stderr_dicts_all[p_i]
+        paths_0_stderr_dict = paths_0_stderr_dicts_all[p_i]
         statistic_name = martingale[p_i]
         stat_validity = stat_validities[statistic_name]
         plt.figure(figsize=(10, 5))
 
         # Plot dataset0 group with dashed lines
         for m_i, method in enumerate(methods):
-            plt.plot(paths_0_dict[method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i}')
+            mean_path = paths_0_dict[method][0]
+            stderr_path = paths_0_stderr_dict[method][0]
+            
+            plt.plot(mean_path, label=method_name_dict[method], linestyle='-', color=f'C{m_i}')
+            # Add error bands
+            plt.fill_between(
+                range(len(mean_path)),
+                np.squeeze((mean_path - stderr_path).to_numpy()),
+                np.squeeze((mean_path + stderr_path).to_numpy()),
+                alpha=0.3,
+                color=f'C{m_i}'
+            )
 
         plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Changepoint')
         plt.axhline(y=thresholds[p_i], color='red', linestyle='--', label='Alarm threshold', linewidth=3)
@@ -50,16 +61,25 @@ def plot_martingale_paths(dataset0_paths_dict, dataset0_paths_stderr_dict, marti
         plt.savefig(os.getcwd() + f'/../image_results/{plot_image_data}figs/{date.today()}_{statistic_name}_clean_{setting}.pdf', bbox_inches='tight')
 
     for p_i, paths_1_dict in enumerate(paths_1_dicts_all):
-        # paths_1_stderr_dict = paths_1_stderr_dicts_all[p_i]
+        paths_1_stderr_dict = paths_1_stderr_dicts_all[p_i]
         statistic_name = martingale[p_i]
         stat_validity = stat_validities[statistic_name]
         plt.figure(figsize=(10, 5))
 
-        # Plot dataset0 group with dashed lines
+        # Plot dataset1 group with dashed lines
         for m_i, method in enumerate(methods):
+            mean_path = paths_1_dict[method][0]
+            stderr_path = paths_1_stderr_dict[method][0]
             
-            plt.plot(paths_1_dict[method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i}')
-            # plt.plot(dataset1_paths_dict[method][0], label=method_name_dict[method], linestyle='-', color=f'C{m_i+1}')
+            plt.plot(mean_path, label=method_name_dict[method], linestyle='-', color=f'C{m_i}')
+            # Add error bands
+            plt.fill_between(
+                range(len(mean_path)),
+                np.squeeze((mean_path - stderr_path).to_numpy()),
+                np.squeeze((mean_path + stderr_path).to_numpy()),
+                alpha=0.3,
+                color=f'C{m_i}'
+            )
 
         plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Changepoint')
         plt.axhline(y=thresholds[p_i], color='red', linestyle='--', label='Alarm threshold', linewidth=3)
@@ -181,25 +201,54 @@ def plot_classification_metrics(set_sizes_dict, class_coverage_dict,
     plt.figure(figsize=(10, 8))
     
     for m_i, method in enumerate(methods):
-        # Process and plot set sizes
-        set_sizes = set_sizes_dict[method][0]  # Assuming the first element in the list
-        
-        # Apply windowed averaging for smoother plots
-        window_avgs = []
-        window_stderr = []
-        
-        for j in range(0, len(set_sizes) - errs_window + 1, errs_window):
-            window = set_sizes[j:j+errs_window]
-            window_avgs.append(np.mean(window))
-            window_stderr.append(np.std(window) / np.sqrt(len(window)))
-        
-        # Plot the windowed averages
-        x_vals = np.arange(0, len(window_avgs) * errs_window, errs_window)
-        plt.plot(x_vals, window_avgs, label=method_name_dict[method], linestyle='-', color=f'C{m_i}', linewidth=3)
-        plt.fill_between(x_vals, 
-                        np.array(window_avgs) - np.array(window_stderr),
-                        np.array(window_avgs) + np.array(window_stderr), 
-                        alpha=0.5, color=f'C{m_i}')
+        # Process all seeds for this method
+        all_set_sizes = set_sizes_dict[method]
+        n_actual_seeds = len(all_set_sizes)
+        if n_actual_seeds > 1:
+            # Multiple seeds case - compute mean and standard error across seeds
+            
+            # First, ensure all seeds have the same length
+            min_length = min(len(sizes) for sizes in all_set_sizes)
+            truncated_sizes = [sizes[:min_length] for sizes in all_set_sizes]
+            
+            # Calculate windowed means for each seed
+            windowed_means_by_seed = []
+            for seed_sizes in truncated_sizes:
+                window_avgs = []
+                for j in range(0, len(seed_sizes) - errs_window + 1, errs_window):
+                    window = seed_sizes[j:j+errs_window]
+                    window_avgs.append(np.mean(window))
+                windowed_means_by_seed.append(window_avgs)
+            
+            # Convert to numpy arrays for easier calculations
+            windowed_means_array = np.array(windowed_means_by_seed)
+            
+            # Calculate mean and stderr across seeds for each time point
+            mean_across_seeds = np.mean(windowed_means_array, axis=0)
+            stderr_across_seeds = np.std(windowed_means_array, axis=0) / np.sqrt(n_actual_seeds)
+            
+            # Plot means and error bands
+            x_vals = np.arange(0, len(mean_across_seeds) * errs_window, errs_window)
+            plt.plot(x_vals, mean_across_seeds, label=method_name_dict[method], linestyle='-', color=f'C{m_i}', linewidth=3)
+            
+            # Add error bands from multiple seeds
+            plt.fill_between(x_vals, 
+                            mean_across_seeds - stderr_across_seeds,
+                            mean_across_seeds + stderr_across_seeds, 
+                            alpha=0.5, color=f'C{m_i}')
+        else:
+            # Single seed case - just do windowed averaging for smoothing
+            set_sizes = all_set_sizes[0]
+            
+            # Apply windowed averaging for smoother plots
+            window_avgs = []
+            for j in range(0, len(set_sizes) - errs_window + 1, errs_window):
+                window = set_sizes[j:j+errs_window]
+                window_avgs.append(np.mean(window))
+            
+            # Plot the windowed averages
+            x_vals = np.arange(0, len(window_avgs) * errs_window, errs_window)
+            plt.plot(x_vals, window_avgs, label=method_name_dict[method], linestyle='-', color=f'C{m_i}', linewidth=3)
 
     plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Changepoint')
     plt.title(f'Prediction Set Size \n (Number of Classes in Set)', fontsize=title_size)
@@ -215,28 +264,59 @@ def plot_classification_metrics(set_sizes_dict, class_coverage_dict,
     plt.figure(figsize=(10, 8))
     
     for m_i, method in enumerate(methods):
-        # Process and plot coverage rates
-        coverage = class_coverage_dict[method][0]  # Assuming the first element in the list
+        # Process all seeds for this method
+        all_coverage = class_coverage_dict[method]
+        n_actual_seeds = len(all_coverage)
         
-        # Apply windowed averaging for smoother plots
-        window_avgs = []
-        window_stderr = []
-        
-        for j in range(0, len(coverage) - errs_window + 1, errs_window):
-            window = coverage[j:j+errs_window]
-            window_avgs.append(np.mean(window))
-            window_stderr.append(np.std(window) / np.sqrt(len(window)))
-
-        # Plot the windowed averages
-        x_vals = np.arange(0, len(window_avgs) * errs_window, errs_window)
-        plt.plot(x_vals, window_avgs, label=method_name_dict[method], linestyle='-', color=f'C{m_i}', linewidth=3)
-        plt.fill_between(x_vals, 
-                        np.array(window_avgs) - np.array(window_stderr),
-                        np.array(window_avgs) + np.array(window_stderr), 
-                        alpha=0.5, color=f'C{m_i}')
+        if n_actual_seeds > 1:
+            # Multiple seeds case - compute mean and standard error across seeds
+            
+            # First, ensure all seeds have the same length
+            min_length = min(len(cov) for cov in all_coverage)
+            truncated_coverage = [cov[:min_length] for cov in all_coverage]
+            
+            # Calculate windowed means for each seed
+            windowed_means_by_seed = []
+            for seed_coverage in truncated_coverage:
+                window_avgs = []
+                for j in range(0, len(seed_coverage) - errs_window + 1, errs_window):
+                    window = seed_coverage[j:j+errs_window]
+                    window_avgs.append(np.mean(window))
+                windowed_means_by_seed.append(window_avgs)
+            
+            # Convert to numpy arrays for easier calculations
+            windowed_means_array = np.array(windowed_means_by_seed)
+            
+            # Calculate mean and stderr across seeds for each time point
+            mean_across_seeds = np.mean(windowed_means_array, axis=0)
+            stderr_across_seeds = np.std(windowed_means_array, axis=0) / np.sqrt(n_actual_seeds)
+            
+            # Plot means and error bands
+            x_vals = np.arange(0, len(mean_across_seeds) * errs_window, errs_window)
+            plt.plot(x_vals, mean_across_seeds, label=method_name_dict[method], linestyle='-', color=f'C{m_i}', linewidth=3)
+            
+            # Add error bands from multiple seeds
+            plt.fill_between(x_vals, 
+                            mean_across_seeds - stderr_across_seeds,
+                            mean_across_seeds + stderr_across_seeds, 
+                            alpha=0.5, color=f'C{m_i}')
+        else:
+            # Single seed case - just do windowed averaging for smoothing
+            coverage = all_coverage[0]
+            
+            # Apply windowed averaging for smoother plots
+            window_avgs = []
+            for j in range(0, len(coverage) - errs_window + 1, errs_window):
+                window = coverage[j:j+errs_window]
+                window_avgs.append(np.mean(window))
+            
+            # Plot the windowed averages
+            x_vals = np.arange(0, len(window_avgs) * errs_window, errs_window)
+            plt.plot(x_vals, window_avgs, label=method_name_dict[method], linestyle='-', color=f'C{m_i}', linewidth=3)
 
     plt.axvline(x=change_point_index, color='k', linestyle='solid', linewidth=5, label='Changepoint')
-    # plt.axhline(y=1-args.alpha, color='r', linestyle='--', linewidth=3, label=f'Target ({1-args.alpha:.2f})')
+    # if hasattr(args, 'alpha'):
+    #     plt.axhline(y=1-args.alpha, color='r', linestyle='--', linewidth=2, label=f'Target ({1-args.alpha:.2f})')
     plt.title(f'Class Coverage Rate \n (Proportion of True Classes in Prediction Sets)', fontsize=title_size)
     plt.ylabel('Coverage Rate ($\\rightarrow$)', fontsize=y_label_size)
     plt.xlabel(xlabel, fontsize=x_label_size)

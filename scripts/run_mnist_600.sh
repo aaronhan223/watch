@@ -4,7 +4,7 @@ for val_ratio in 0 0.05 0.1 0.15 0.2 0.25 0.3 0.4 0.5
 do
     for test_ratio in 0 0.05 0.1 0.15 0.2 0.25 0.3 0.4 0.5
     do
-        python -W ignore main_mnist_cifar.py \
+        python -W ignore ../src/main_mnist_cifar.py \
             --dataset0 mnist \
             --dataset1 mnist_c \
             --n_seeds 1 \

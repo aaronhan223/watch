@@ -29,15 +29,15 @@
 #     done
 # done
 
-python -W ignore main_mnist_cifar.py \
+python -W ignore ../src/main_mnist_cifar.py \
     --dataset0 mnist \
     --dataset1 mnist_c \
-    --n_seeds 1 \
+    --n_seeds 5 \
     --cs_type probability \
     --methods fixed_cal_offline none \
     --schedule variable \
-    --epochs 1 \
-    --weight_epoch 1 \
+    --epochs 10 \
+    --weight_epoch 10 \
     --lr 0.001 \
     --bs 64 \
     --init_clean 1 \
@@ -48,6 +48,6 @@ python -W ignore main_mnist_cifar.py \
     --mixture_ratio_val 0.5 \
     --mixture_ratio_test 0.5 \
     --val_set_size 100 \
-    --errs_window 50 \
+    --errs_window 1 \
     --num_samples_vis 600 \
     --plot_image_data mnist_debug_ 
