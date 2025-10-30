@@ -16,6 +16,8 @@ import pdb
 ## pip install ucimlrepo
 from ucimlrepo import fetch_ucirepo 
 
+def effective_sample_size_est(w):
+    return np.sum(w)**2 / np.sum(w**2)
 
 def get_bike_sharing_data(n_sample=None):
     # fetch dataset 
@@ -333,6 +335,7 @@ def mean_func_synthetic_v3(x):
 
 
 
+# def get_1dim_synthetic_v3_data(size=30000):
 def get_1dim_synthetic_v3_data(size=30000):
 #     high=100 # 2*np.pi
 #     X = np.random.uniform(low=15, high=high, size=size)
@@ -1137,14 +1140,22 @@ def split_and_shift_dataset0(
         print("len(ataset0_train_copy)", len(dataset0_train_copy))
         print("maxdataset0_train_0_biased_idx", max(dataset0_train_0_biased_idx))
         
-        dataset0_train_0_source_idx = dataset0_train_0_biased_idx[:-num_test_unshifted] ## all except las num_test_unshifted
-        dataset0_test_0_source_idx = dataset0_train_0_biased_idx[-num_test_unshifted:] ## last num_test_unshifted
-
-        dataset0_train = dataset0_train_copy.iloc[dataset0_train_0_source_idx]
+        if (num_test_unshifted > 0):
+            ## If some test points are unshifted (pre changepoint), then update dataset0_test_0 accordingly
+            dataset0_train_0_source_idx = dataset0_train_0_biased_idx[:-num_test_unshifted] ## all except las num_test_unshifted
+            dataset0_test_0_source_idx = dataset0_train_0_biased_idx[-num_test_unshifted:] ## last num_test_unshifted
+            
+            dataset0_test_0 = pd.concat([dataset0_train_copy.iloc[dataset0_test_0_source_idx], dataset0_test_0.iloc[dataset0_test_0_biased_idx]])
         
+        else:
+            dataset0_train_0_source_idx = dataset0_train_0_biased_idx ## all except las num_test_unshifted
+            
+            
+        dataset0_train = dataset0_train_copy.iloc[dataset0_train_0_source_idx]
+
 #         dataset0_test_0_idx = np.concatenate((dataset0_test_0_source_idx[-num_test_unshifted:], dataset0_test_0_biased_idx))
         
-        return dataset0_train, pd.concat([dataset0_train_copy.iloc[dataset0_test_0_source_idx], dataset0_test_0.iloc[dataset0_test_0_biased_idx]])
+        return dataset0_train, dataset0_test_0
     
     
     elif (dataset0_shift_type == 'label'):
