@@ -164,5 +164,5 @@ cython_debug/
 data/
 figs/
 results/
-mnist_cifar_figs/
+image_results/
 pkl_files/

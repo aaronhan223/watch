@@ -476,7 +476,8 @@ def replicate_dataset(original_dataset, transform=None):
 
 
 def cal_test_mixture(args, fulltrainset, corrupted_dataset, transform=None, train_indices=None, val_dataset_indices=None):
-    assert args.val_set_size * args.mixture_ratio_val < len(corrupted_dataset) * args.mixture_ratio_test, "Not enough data to sample from"
+    if not (args.mixture_ratio_val == 0 and args.mixture_ratio_test == 0):
+        assert args.val_set_size * args.mixture_ratio_val < len(corrupted_dataset) * args.mixture_ratio_test, "Not enough data to sample from"
     init_phase = args.init_clean
     if train_indices is None:
         all_indices_train = np.arange(len(fulltrainset))
@@ -618,9 +619,9 @@ def get_cifar10_data(args):
         [transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
 
-    fulltrainset = torchvision.datasets.CIFAR10(root='./data', train=True,
+    fulltrainset = torchvision.datasets.CIFAR10(root='../src/data', train=True,
                                             download=False, transform=transform)
-    fulltestset = torchvision.datasets.CIFAR10(root='./data', train=False,
+    fulltestset = torchvision.datasets.CIFAR10(root='../src/data', train=False,
                                         download=False, transform=transform)
     all_indices_train = np.arange(len(fulltrainset))
     random.shuffle(all_indices_train)
@@ -656,7 +657,7 @@ def get_cifar10_c_data(args):
         transform=transform_corrupted
     )
     loader = DataLoader(corrupted_dataset, batch_size=args.bs, shuffle=True)
-    fulltrainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=transform_clean)
+    fulltrainset = torchvision.datasets.CIFAR10(root='../src/data', train=True, download=False, transform=transform_clean)
     cal_test_w_est_loader_binary, cal_test_w_est_loader, test_loader_mixed, test_loader_mixed_binary = cal_test_mixture(args, fulltrainset, corrupted_dataset, transform=transform_clean)
     return loader, cal_test_w_est_loader_binary, cal_test_w_est_loader, test_loader_mixed, test_loader_mixed_binary
 
