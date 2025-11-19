@@ -271,7 +271,8 @@ def online_lik_ratio_estimates_old(X_cal, X_test_w_est, X_test_0_only, adapt_sta
 
 
 
-def online_lik_ratio_estimates_window_ahead(X_cal, X_test_w_est, X_test_0_only, adapt_start=None, classifier='NN', len_w_ahead=25):
+def online_lik_ratio_estimates_window_ahead(X_cal, X_test_w_est, X_test_0_only, adapt_start=None, classifier='NN', len_w_ahead=1):
+    #len_w_ahead=25):
     
     
 #     print("inside window ahead")

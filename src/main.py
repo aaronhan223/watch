@@ -27,9 +27,9 @@ import time
 from datetime import date
 
 
-def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0, cs_type='signed',\
+def train_and_evaluate(args, X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF', seed=0, cs_type='signed',\
                        methods=['fixed_cal_oracle', 'none'], dataset0_name='white_wine', cov_shift_bias=0, init_phase=500,\
-                      x_ctm_thresh=None, x_sched_thresh=None):
+                      x_ctm_thresh=None, x_sched_thresh=None, online_lik_ratio_classifier='LR', betting_function='composite'):
     fold_results = []
     cs_0 = []
     errors_0 = [] ## Prediction errors (absolute value residuals); recorded regardless of score function used
@@ -42,7 +42,9 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
         W_dict[method] = []
         
 #     W = [] ## Will contain estimated likelihood ratio weights for each fold
-    adapt_starts = [] ## Index of test point where adaptation should begin. If method != fixed_cal_dyn, then this is equal to num cal points in each fold
+    x_ctm_alarms = [] ## Index where X-CTM first raises an alarm.
+    adapt_starts = [] ## Index of the estimated changepoint, obtained by running SR-procedure backwards from x_ctm_alarm time 
+                       ## (with threshold given by number of test points observed since deployment)
     n_cals = []
     
     y_name = dataset0_test_0.columns[-1] ## Outcome must be last column
@@ -50,10 +52,14 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
     
     ## Allocate some test points for density-ratio estimation:
     print("init_phase : ", init_phase)
-    dataset0_test_w_est = dataset0_test_0.iloc[:init_phase]
+    print("original len(dataset0_test_0) : ", len(dataset0_test_0))
+    dataset0_test_w_est = dataset0_test_0.iloc[-init_phase:]
     X_test_w_est = dataset0_test_w_est.drop(y_name, axis=1).to_numpy()
     ## Test points used in eval are all those not used for density-ratio estimation
-    dataset0_test_0 = dataset0_test_0.iloc[init_phase:]
+    dataset0_test_0 = dataset0_test_0.iloc[:-init_phase]
+    
+    print("len(dataset0_test_w_est) : ", len(dataset0_test_w_est))
+    print("post len(dataset0_test_0) :", len(dataset0_test_0))
     
     for i, (train_index, cal_index) in enumerate(folds):
         print("fold : ", i)
@@ -119,7 +125,10 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             p_values = calculate_p_values(X_conformity_scores_0)
             
             ## Run martingale on test pt p-values, ie on p_values[n_cal:]
-            _, martingale_value_test, _, m_alarm_time = composite_jumper_martingale(p_values[(n_cal):], return_alarm=True) 
+            if (betting_function == 'composite'):
+                _, martingale_value_test, _, m_alarm_time = composite_jumper_martingale(p_values[(n_cal):], return_alarm=True)
+            else:
+                _, martingale_value_test, _, sr_alarm_time = simple_jumper_martingale(p_values[(n_cal):], return_alarm=True)
             _, sigma_test, _, sr_alarm_time = shiryaev_roberts_procedure(martingale_value_test, x_sched_thresh, return_alarm=True)
             
             ## Save X-CTM and X-CTM SR stat paths
@@ -147,6 +156,43 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
                 else:
                     x_alarm_idx = len(X_cal_test_0)-1
                     
+                    
+            if (x_alarm_idx < len(X_cal_test_0)-1):
+                n_test_pre_x_alarm = x_alarm_idx - n_cal
+                
+                _, SR_x_rerun, _, sr_alarm_time = shiryaev_roberts_procedure(martingale_value_test, n_test_pre_x_alarm, return_alarm=True)
+                
+                x_changepoint_idx_est = n_cal + sr_alarm_time
+                
+#                 ## Reversed approach:
+                test_p_values_pre_x_alarm_reversed = p_values[n_cal:x_alarm_idx][::-1]
+#                 n_test_pre_x_alarm = len(test_p_values_pre_x_alarm_reversed)
+                if (betting_function == 'composite'):
+                    _, mart_test_rev, _, m_alarm_time_rev = composite_jumper_martingale(test_p_values_pre_x_alarm_reversed, \
+                                                                                        return_alarm=True) 
+                else:
+                    _, mart_test_rev, _, m_alarm_time_rev = simple_jumper_martingale(test_p_values_pre_x_alarm_reversed, \
+                                                                                        return_alarm=True) 
+                _, sigma_test_rev, _, sr_alarm_time_rev = shiryaev_roberts_procedure(mart_test_rev, n_test_pre_x_alarm, \
+                                                                             return_alarm=True)
+                
+                
+#                 test_x_changepoint_idx_est = n_test_pre_x_alarm - m_alarm_time_rev
+                if (sr_alarm_time_rev is not None):
+                    test_x_changepoint_idx_est = n_test_pre_x_alarm - sr_alarm_time_rev ## estimated test pt idx of changepoint
+                else:
+                    test_x_changepoint_idx_est = 0  ## estimated test pt idx of changepoint
+                    
+                x_changepoint_idx_est = n_cal + test_x_changepoint_idx_est  ## estimated changepoint idx (including cal) of changepoint; Note that calibration points are assumed to be exchangeable, so take max with n_cal
+                
+            else:
+
+                x_changepoint_idx_est = x_alarm_idx
+                test_x_changepoint_idx_est = x_changepoint_idx_est - n_cal
+                
+                
+#             print("test_x_changepoint_idx_est : ", test_x_changepoint_idx_est)
+                    
                 ## Test point index where X-CTM or SR-XCTM first exceeds x_ctm_thresh*sigma[n_cal-1]
 #                 x_alarm_idx = n_cal + np.argmax(np.bitwise_or(sigma_test>=x_sched_thresh, martingale_value_test>=x_ctm_thresh)) if (np.max(sigma_test)>=x_sched_thresh or np.max(martingale_value_test)>=x_ctm_thresh) else len(X_cal_test_0) -1
             
@@ -154,18 +200,34 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
 #             if (m_alarm_time is not None or sr_alarm_time is not None):
                 
 #                 x_alarm_idx = n_cal + min(m_alarm_time, sr_alarm_time)
+#             print("n_cal : ", n_cal)
+#             print("m_alarm_idx : ", m_alarm_time)
+#             print("sr_alarm_idx : ", sr_alarm_time)
+#             print("x_alarm_idx : ", x_alarm_idx)
+# #             print("Adapt test pt idx : ", x_alarm_idx - n_cal)
+#             print("test_x_changepoint_idx_est : ", test_x_changepoint_idx_est)
+    
+            if (dataset0_name == '1dim_synthetic_v3'):
+                adapt_starts.append(x_alarm_idx) ## Update where to start adaptation
+                x_ctm_alarms.append(x_alarm_idx)
+#                 adapt_starts.append(x_changepoint_idx_est)
+            else:
+                x_ctm_alarms.append(x_alarm_idx)
+                adapt_starts.append(x_alarm_idx)
+                
             print("n_cal : ", n_cal)
             print("m_alarm_idx : ", m_alarm_time)
             print("sr_alarm_idx : ", sr_alarm_time)
-            print("x_alarm_idx : ", x_alarm_idx)
-            print("Adapt test pt idx : ", x_alarm_idx - n_cal)
-
-            adapt_starts.append(x_alarm_idx) ## Update where to start adaptation
-            
+            print("x_ctm_alarms[-1] : ", x_ctm_alarms[-1])
+            print("adapt_starts[-1] : ", adapt_starts[-1])
+            print("adapt_starts[-1] - n_cal : ", adapt_starts[-1] - n_cal)
                         
         else:
             ## Default is to begin adaption immediately after calibration set, ie n_cal
-            adapt_starts.append(n_cal + num_test_unshifted)
+#             x_ctm_alarms.append(n_cal + num_test_unshifted)
+#             adapt_starts.append(n_cal + num_test_unshifted)
+            x_ctm_alarms.append(n_cal)
+            adapt_starts.append(n_cal)
          
                    
 
@@ -230,11 +292,11 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             if (method in ['fixed_cal', 'one_step_est']):
                 ## Estimating likelihood ratios for each cal, test point
                 ## np.shape(W_i) = (T, n_cal + T)
-                W_i = online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, adapt_start=n_cal)
+                W_i = online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, adapt_start=n_cal, classifier=online_lik_ratio_classifier)
             
             elif (method in ['fixed_cal_dyn']):
                 ## fixed_cal except with dynamically/automatically determined start to adaptation
-                W_i = online_lik_ratio_estimates(X_cal, X_test_w_est, X_test_0_only, adapt_start=adapt_starts[i])
+                W_i = online_lik_ratio_estimates_window_ahead(X_cal, X_test_w_est, X_test_0_only, adapt_start=adapt_starts[i], classifier=online_lik_ratio_classifier, len_w_ahead=args.len_w_ahead)
             
 
             elif (method in ['fixed_cal_offline']):
@@ -313,18 +375,18 @@ def train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name='RF'
             
 #     print("len cs_resampled_cal_list : ", len(cs_resampled_cal_list))
     
-    return cs_0, cs_1, W_dict, adapt_starts, n_cals, errors_0, xctm_paths_0, xctm_sr_paths_0, cs_resampled_cal_list
+    return cs_0, cs_1, W_dict, adapt_starts, n_cals, x_ctm_alarms, errors_0, xctm_paths_0, xctm_sr_paths_0, cs_resampled_cal_list
     
 
 
-def retrain_count(args, conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, adapt_start, n_cal, alpha=0.1,\
+def retrain_count(args, conformity_score, training_schedule, sr_threshold, cu_confidence, W_i, adapt_start, n_cal, x_ctm_alarm, alpha=0.1,\
                   cs_type='abs',verbose=False, method='fixed_cal_oracle', depth=1, init_ctm_on_cal_set=True, \
-                  cs_resampled_cal_list = None):
+                  cs_resampled_cal_list = None, betting_function = 'composite'):
     
     if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline', 'fixed_cal_dyn', 'resample_cal_oracle']):
 #         print("adapt_start : ", adapt_start)
 
-        p_values, q_lower, q_upper = calculate_weighted_p_values_and_quantiles(args, conformity_score, W_i, adapt_start, method, cs_resampled_cal_list= cs_resampled_cal_list, num_test_unshifted = num_test_unshifted)
+        p_values, q_lower, q_upper = calculate_weighted_p_values_and_quantiles(args, conformity_score, W_i, n_cal, x_ctm_alarm, adapt_start, method, cs_resampled_cal_list= cs_resampled_cal_list, num_test_unshifted = num_test_unshifted)
         
         
         
@@ -337,14 +399,20 @@ def retrain_count(args, conformity_score, training_schedule, sr_threshold, cu_co
         
     if (init_ctm_on_cal_set):
         ## Initialize CTM on calibration set, as in Vovk et al. 2021
-        retrain_m, martingale_value, martingale_runtime, martingale_alarm  = composite_jumper_martingale(p_values, verbose=verbose, return_alarm=True)
+        if (betting_function == 'composite'):
+            retrain_m, martingale_value, martingale_runtime, martingale_alarm  = composite_jumper_martingale(p_values, verbose=verbose, return_alarm=True)
+        else:
+            retrain_m, martingale_value, martingale_runtime, martingale_alarm  = simple_jumper_martingale(p_values, verbose=verbose, return_alarm=True)
     else:
         ## Initialize CTM at deployment time (ie, not including calibration set) to facilitate comparison to other methods
 #         p_values = p_values[n_cal:]
 #         q_lower  = q_lower[n_cal:]
 #         q_upper  = q_upper[n_cal:]
-        
-        retrain_m, martingale_value, martingale_runtime, martingale_alarm = composite_jumper_martingale(p_values[n_cal:], 100, verbose=verbose, return_alarm=True)
+        if (betting_function == 'composite'):
+            retrain_m, martingale_value, martingale_runtime, martingale_alarm = composite_jumper_martingale(p_values[n_cal:], verbose=verbose, return_alarm=True)
+        else:
+            retrain_m, martingale_value, martingale_runtime, martingale_alarm  = simple_jumper_martingale(p_values[n_cal:], verbose=verbose, return_alarm=True)
+            
         
     sigma=None
     cusum=None
@@ -382,7 +450,8 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
                       pr_target_conc_type='betting', pr_st_eps_tol=0.0, pr_st_source_delta=1/200, \
                       pr_st_target_delta = 1/200,pr_cd_eps_tol=0.0, pr_cd_source_delta=1/20000, \
                       pr_cd_target_delta = 1/20000,pr_st_stop_criterion='fixed_length',pr_cd_stop_criterion='fixed_length',\
-                      pr_cd_batch_size=50, init_ctm_on_cal_set=True, proportion_holdout=3/4):
+                      pr_cd_batch_size=50, init_ctm_on_cal_set=True, proportion_holdout=3/4, online_lik_ratio_classifier='LR',\
+                      betting_function = 'composite'):
     
     
     
@@ -392,13 +461,30 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
                                                                label_uptick=label_uptick, noise_mu=noise_mu,\
                                                                 noise_sigma=noise_sigma, num_test_unshifted=num_test_unshifted)
     
-    X, y, folds = split_into_folds(dataset0_train, num_folds=num_folds, seed=seed)
-        
-#     ## Add simulated measurement noise with OLS
+    
+    ## Add simulated measurement noise, uniformly at random
+    dataset0_train.iloc[:,-1] += np.random.normal(0, 0.0001, size=len(dataset0_train))
+    dataset0_test_0.iloc[:,-1] += np.random.normal(0, 0.0001, size=len(dataset0_test_0))
+    
+    ## Add simulated measurement noise with OLS
+#     print("np.shape(dataset0_train[:,:-1]) : ", np.shape(dataset0_train[:,:-1]))
+#     X_all = np.vstack((dataset0_train.iloc[:,:-1], dataset0_test_0.iloc[:,:-1]))
+#     y_all = np.concatenate((dataset0_train.iloc[:,-1], dataset0_test_0.iloc[:,-1]))
 #     ols = LinearRegression(fit_intercept=False)  # featurization from walsh_hadamard_from_seqs has intercept
-#     ols.fit(X, y)
-#     y_pred = ols.predict(X)
-#     resid = np.abs(y - y_pred)
+#     ols.fit(X_all, y_all)
+#     y_all_pred = ols.predict(X_all)
+#     resid = np.abs(y_all - y_all_pred)
+#     resid = resid / np.sum(resid)
+#     dataset0_train.iloc[:,-1] = dataset0_train.iloc[:,-1] + np.random.normal(0, 0.01*resid[:len(dataset0_train)])
+#     dataset0_test_0.iloc[:,-1] = dataset0_test_0.iloc[:,-1] + np.random.normal(0, 0.01*resid[:len(dataset0_test_0)])
+    
+    
+    
+    X, y, folds = split_into_folds(dataset0_train, num_folds=num_folds, seed=seed)
+    
+    
+        
+
 #     y = y + np.random.normal(0, 0.1*resid)
 
     ## Add simulated measurement noise with Kernel Ridge
@@ -411,7 +497,7 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
    
 
 
-    cs_0, cs_1, W_dict, adapt_starts, n_cals, errors_0, xctm_paths_0, xctm_sr_paths_0, cs_resampled_cal_list = train_and_evaluate(X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed, cs_type=cs_type, methods=methods, dataset0_name=dataset0_name, cov_shift_bias=cov_shift_bias, init_phase=init_phase, x_ctm_thresh=x_ctm_thresh, x_sched_thresh=x_sched_thresh)
+    cs_0, cs_1, W_dict, adapt_starts, n_cals, x_ctm_alarms, errors_0, xctm_paths_0, xctm_sr_paths_0, cs_resampled_cal_list = train_and_evaluate(args, X, y, folds, dataset0_test_0, dataset1, muh_fun_name, seed=seed, cs_type=cs_type, methods=methods, dataset0_name=dataset0_name, cov_shift_bias=cov_shift_bias, init_phase=init_phase, x_ctm_thresh=x_ctm_thresh, x_sched_thresh=x_sched_thresh, online_lik_ratio_classifier=online_lik_ratio_classifier, betting_function = betting_function)
     
 #     for method in methods:
 #         print(f'{method} W_i : ', W_dict[method])
@@ -487,20 +573,20 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
         for method in methods:
 #             print("n_cal : ", n_cal)
 #             print("len W_dict[method][i] : ", len(W_dict[method][i]))
-            print("len cs_resampled_cal_list ", len(cs_resampled_cal_list))
+#             print("len cs_resampled_cal_list ", len(cs_resampled_cal_list))
             
             if (method in ['fixed_cal', 'fixed_cal_oracle', 'one_step_est', 'one_step_oracle', 'batch_oracle', 'multistep_oracle', 'fixed_cal_offline', 'fixed_cal_dyn', 'resample_cal_oracle']):
-                m_0, s_0, martingale_value_0, sigma_0, cusum_0, p_vals, q_lower, q_upper, martingale_runtime, sigma_runtime, cusum_runtime, martingale_alarm, sigma_alarm, cusum_alarm = retrain_count(args, score_0, training_schedule, sr_threshold, cu_confidence, W_dict[method][i], adapt_starts[i], n_cal, alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set, cs_resampled_cal_list = cs_resampled_cal_list)
+                m_0, s_0, martingale_value_0, sigma_0, cusum_0, p_vals, q_lower, q_upper, martingale_runtime, sigma_runtime, cusum_runtime, martingale_alarm, sigma_alarm, cusum_alarm = retrain_count(args, score_0, training_schedule, sr_threshold, cu_confidence, W_dict[method][i], adapt_starts[i], n_cal, x_ctm_alarms[i], alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set, cs_resampled_cal_list = cs_resampled_cal_list, betting_function = betting_function)
                 
                 
                 
             else:
                 ## Run baseline with uniform weights
-                m_0, s_0, martingale_value_0, sigma_0, cusum_0, p_vals, q_lower, q_upper, martingale_runtime, sigma_runtime, cusum_runtime, martingale_alarm, sigma_alarm, cusum_alarm = retrain_count(args, score_0, training_schedule, sr_threshold, cu_confidence, None, adapt_starts[i], n_cal, alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set, cs_resampled_cal_list = cs_resampled_cal_list)
+                m_0, s_0, martingale_value_0, sigma_0, cusum_0, p_vals, q_lower, q_upper, martingale_runtime, sigma_runtime, cusum_runtime, martingale_alarm, sigma_alarm, cusum_alarm = retrain_count(args, score_0, training_schedule, sr_threshold, cu_confidence, None, adapt_starts[i], n_cal, x_ctm_alarms[i], alpha, cs_type, verbose, method, depth, init_ctm_on_cal_set=init_ctm_on_cal_set, cs_resampled_cal_list = cs_resampled_cal_list, betting_function = betting_function)
                             
             
-            print(f'{method} p-values : {p_vals[20:30]}')
-            print(f'{method} martingale_value_0 : {martingale_value_0[20:30]}')
+#             print(f'{method} p-values : {p_vals[20:30]}')
+#             print(f'{method} martingale_value_0 : {martingale_value_0[20:30]}')
             
             if m_0:
                 retrain_m_count_0_dict[method] += 1
@@ -525,6 +611,9 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
 #             p_values_0_dict[method].append(p_vals)
             coverage_vals = ((q_lower <= score_0)&(q_upper >= score_0))
             width_vals = q_upper - q_lower
+#             print('q_upper : ', q_upper)
+#             print('q_lower : ', q_lower)
+#             print('width_vals :', width_vals)
 #             coverage_0_dict[method].append(coverage_vals)
 #             widths_0_dict[method].append(q_upper - q_lower)
                         
@@ -651,7 +740,7 @@ def training_function(args, dataset0, dataset0_name, dataset1=None, training_sch
     ## Note: 
     for i, score_1 in enumerate(cs_1):
         for method in methods:
-            m_1, s_1, martingale_value_1, sigma_1 = retrain_count(args, score_1, training_schedule, sr_threshold, cu_confidence, W[i], adapt_starts[i], alpha, cs_type, verbose, method, depth)
+            m_1, s_1, martingale_value_1, sigma_1 = retrain_count(args, score_1, training_schedule, sr_threshold, cu_confidence, W[i], adapt_starts[i], alpha, cs_type, verbose, method, depth, betting_function = betting_function)
 
             if m_1:
                 retrain_m_count_1_dict[method] += 1
@@ -819,8 +908,10 @@ if __name__ == "__main__":
     parser.add_argument('--noise_sigma', type=float, default=0.0, help="x-dependent noise variance, wine data")
     parser.add_argument('--init_phase', type=int, default=500, help="Num test pts that pre-trained density-ratio estimator has access to")
     parser.add_argument('--num_folds', type=int, default=3, help="Num folds for CTMs and WCTMs")
+    parser.add_argument('--betting_function', type=str, default='composite', help='Betting function to use, either "composite" or "simple"')
     
     ## Params only used for fixed_cal_dyn method:
+    parser.add_argument('--online_lik_ratio_classifier', type=str, default='LR', help='Type of classifier to use for online density-ratio estimation')
     parser.add_argument('--x_ctm_thresh', type=float, default=3.1623, help="Threshold X-test martingale value that triggers adaptation for fixed_cal_dyn when X-CTM value exceeds it. Default: sqrt(10)")
     parser.add_argument('--x_sched_thresh', type=int, default=1000, help="Threshold ratio that triggers adaptation for fixed_cal_dyn when X-CTM value exceeds it.")
     
@@ -846,6 +937,9 @@ if __name__ == "__main__":
                     help='Set the init_ctm_on_cal_set flag value to True.')
     parser.add_argument('--init_on_test', dest='init_ctm_on_cal_set', action='store_false',
                     help='Set the init_ctm_on_cal_set flag value to False.')
+    
+    parser.add_argument('--len_w_ahead', type=int, default=1, help="Number of test point covariates ahead one can view for online density-ratio estimation.")
+
     parser.set_defaults(init_ctm_on_cal_set=True, run_PR_ST=False, run_PR_CD=False)
    
 
@@ -870,6 +964,7 @@ if __name__ == "__main__":
     init_phase = args.init_phase
     label_shift = args.label_shift  
     num_folds = args.num_folds
+    online_lik_ratio_classifier = args.online_lik_ratio_classifier
     x_ctm_thresh = args.x_ctm_thresh
     x_sched_thresh = args.x_sched_thresh
     num_test_unshifted = args.num_test_unshifted
@@ -878,6 +973,8 @@ if __name__ == "__main__":
     run_PR_CD = args.run_PR_CD
     pr_cd_batch_size = args.pr_cd_batch_size
     proportion_holdout = args.proportion_holdout
+    betting_function = args.betting_function
+    len_w_ahead = args.len_w_ahead
     
     print("init_ctm_on_cal_set from args : ", init_ctm_on_cal_set)
     
@@ -923,7 +1020,7 @@ if __name__ == "__main__":
 #     paths_all = pd.DataFrame()
     
     methods_all = "_".join(methods)
-    setting = '{}-{}-{}-c_bias{}-label{}-win{}-cs{}-nseeds{}-W{}-numTUn{}-test0Size{}-initCal{}-sch{}-pHold{}'.format(
+    setting = '{}-{}-{}-c_bias{}-lab{}-win{}-cs{}-nseed{}-W{}-numTUn{}-test0Size{}-initCal{}-sch{}-pHold{}-wEst{}-bf{}'.format(
         dataset0_name,
         muh_fun_name,
         dataset0_shift_type,
@@ -937,7 +1034,9 @@ if __name__ == "__main__":
         test0_size,
         init_ctm_on_cal_set,
         training_schedule,
-        proportion_holdout
+        proportion_holdout,
+        online_lik_ratio_classifier,
+        betting_function
     )
     
     if run_PR_ST:
@@ -1002,7 +1101,9 @@ if __name__ == "__main__":
             pr_cd_stop_criterion=pr_cd_stop_criterion,
             pr_cd_batch_size=pr_cd_batch_size,
             init_ctm_on_cal_set=init_ctm_on_cal_set,
-            proportion_holdout=proportion_holdout
+            proportion_holdout=proportion_holdout,
+            online_lik_ratio_classifier=online_lik_ratio_classifier,
+            betting_function=betting_function
         )
         for method in methods:
             paths_dict_all[method] = pd.concat([paths_dict_all[method], paths_dict_curr[method]], ignore_index=True)
@@ -1148,6 +1249,7 @@ if __name__ == "__main__":
                 coverage_0_stderr_fold.append(paths_all_sub['coverage_0_'+str(i)].std() / np.sqrt(n_seeds*errs_window))
                 
                 ## Widths for window
+#                 print('widths: ', paths_all_sub['widths_0_'+str(i)])
                 wid_med = paths_all_sub['widths_0_'+str(i)].median()
                 widths_0_medians_fold.append(wid_med)
                 widths_0_lower_q_fold.append(paths_all_sub['widths_0_'+str(i)].quantile(0.25))

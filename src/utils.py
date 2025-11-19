@@ -6,8 +6,28 @@ import pandas as pd
 import os
 import torch
 import torch.nn as nn
-import torchvision
-import torchvision.transforms as transforms
+
+
+## Checking torchvision
+def has_torchvision_nms():
+    try:
+        import torchvision
+        import torch
+        # Try calling the operator registration
+        _ = torchvision.ops.nms
+        return True
+    except Exception:
+        return False
+
+HAS_TV_NMS = has_torchvision_nms()
+
+if HAS_TV_NMS:
+    # safe to use torchvision functionality
+    ...
+else:
+    print("torchvision ops unavailable; skipping.")
+
+
 from torch.utils.data import random_split, Dataset, DataLoader, ConcatDataset, Subset
 import random
 import pdb
