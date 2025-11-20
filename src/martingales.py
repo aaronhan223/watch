@@ -21,6 +21,7 @@ def cusum_procedure(S, threshold=10**4, verbose=False, return_alarm=False):
     """
     Implements the CUSUM statistic.
     """
+    print("Running CUSUM...")
     start_time = time.time()
     elapsed_time_min = None
     gamma = np.zeros(len(S))
@@ -34,6 +35,7 @@ def cusum_procedure(S, threshold=10**4, verbose=False, return_alarm=False):
             if verbose:
                 print(f"Alarm raised at observation {n} with gamma={gamma[n]}")
             # return True, gamma
+    print("Done!")
     if return_alarm:
         return False, np.nan_to_num(gamma, nan=np.inf), elapsed_time_min, alarm_time
     else:
@@ -44,6 +46,7 @@ def shiryaev_roberts_procedure(S, c=10**4, verbose=False, return_alarm=False):
     """
     Implements the Shiryaev-Roberts statistic.
     """
+    print("Running Shiryaev-Roberts...")
     if return_alarm:
         start_time = time.time()
         elapsed_time_min = None
@@ -57,6 +60,8 @@ def shiryaev_roberts_procedure(S, c=10**4, verbose=False, return_alarm=False):
                 if verbose:
                     print(f"Alarm raised at observation {n} with sigma={sigma[n]}")
                 # return True, sigma
+                
+        print("Done!")
         return False, np.nan_to_num(sigma, nan=np.inf), elapsed_time_min, alarm_time
 
     else:
@@ -66,6 +71,7 @@ def shiryaev_roberts_procedure(S, c=10**4, verbose=False, return_alarm=False):
             if sigma[n - 1] >= c and verbose:
                 print(f"Alarm raised at observation {n} with sigma={sigma[n - 1]}")
                 # return True, sigma
+        print("Done!")
         return False, np.nan_to_num(sigma, nan=np.inf)
 #     sigma = []
 #     for n in range(1, len(S)):
